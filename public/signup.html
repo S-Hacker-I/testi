@@ -117,98 +117,28 @@
                     </div>
 
                     <!-- Signup Form -->
-                    <form id="signupForm" class="space-y-4" novalidate>
-                        <!-- Name Field -->
-                        <div class="relative">
-                            <input type="text" id="name" required
-                                class="peer w-full px-4 py-3 rounded-xl border border-gray-300 text-gray-900 text-sm
-                                placeholder-transparent focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                placeholder="Full name">
-                            <label for="name" 
-                                class="absolute left-2 -top-2 text-xs text-gray-500 px-2 transition-all
-                                peer-placeholder-shown:text-sm peer-placeholder-shown:text-gray-400 peer-placeholder-shown:top-3 
-                                peer-placeholder-shown:left-4 peer-focus:-top-2 peer-focus:left-2 peer-focus:text-blue-500 
-                                peer-focus:text-xs floating-label">
-                                Full name
-                            </label>
+                    <form onsubmit="redirectToDashboard(event)" class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Full Name</label>
+                            <input type="text" 
+                                class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500"
+                                required>
                         </div>
-
-                        <!-- Email Field -->
-                        <div class="relative">
-                            <input type="email" id="email" required
-                                class="peer w-full px-4 py-3 rounded-xl border border-gray-300 text-gray-900 text-sm
-                                placeholder-transparent focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                placeholder="Email address">
-                            <label for="email" 
-                                class="absolute left-2 -top-2 text-xs text-gray-500 px-2 transition-all
-                                peer-placeholder-shown:text-sm peer-placeholder-shown:text-gray-400 peer-placeholder-shown:top-3 
-                                peer-placeholder-shown:left-4 peer-focus:-top-2 peer-focus:left-2 peer-focus:text-blue-500 
-                                peer-focus:text-xs floating-label">
-                                Email address
-                            </label>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Email</label>
+                            <input type="email" 
+                                class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500"
+                                required>
                         </div>
-
-                        <!-- Password Field -->
-                        <div class="space-y-2">
-                            <div class="relative">
-                                <input type="password" id="password" required
-                                    class="peer w-full px-4 py-3 rounded-xl border border-gray-300 text-gray-900 text-sm
-                                    placeholder-transparent focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                    placeholder="Password">
-                                <label for="password" 
-                                    class="absolute left-2 -top-2 text-xs text-gray-500 px-2 transition-all
-                                    peer-placeholder-shown:text-sm peer-placeholder-shown:text-gray-400 peer-placeholder-shown:top-3 
-                                    peer-placeholder-shown:left-4 peer-focus:-top-2 peer-focus:left-2 peer-focus:text-blue-500 
-                                    peer-focus:text-xs floating-label">
-                                    Password
-                                </label>
-                                <button type="button" onclick="togglePassword()" 
-                                    class="absolute right-4 top-3 text-gray-400 hover:text-gray-600">
-                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
-                                            d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
-                                            d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
-                                    </svg>
-                                </button>
-                            </div>
-                            
-                            <!-- Password Strength Indicator -->
-                            <div class="space-y-2">
-                                <div class="flex space-x-2">
-                                    <div id="strength1" class="h-1 w-1/4 rounded bg-gray-200 strength-indicator"></div>
-                                    <div id="strength2" class="h-1 w-1/4 rounded bg-gray-200 strength-indicator"></div>
-                                    <div id="strength3" class="h-1 w-1/4 rounded bg-gray-200 strength-indicator"></div>
-                                    <div id="strength4" class="h-1 w-1/4 rounded bg-gray-200 strength-indicator"></div>
-                                </div>
-                                <p id="strengthText" class="text-xs text-gray-500"></p>
-                            </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Password</label>
+                            <input type="password" 
+                                class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500"
+                                required>
                         </div>
-
-                        <!-- Terms Checkbox -->
-                        <label class="flex items-start space-x-3">
-                            <input type="checkbox" required
-                                class="mt-0.5 h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
-                            <span class="text-sm text-gray-600">
-                                I agree to the 
-                                <a href="#" class="text-blue-600 hover:text-blue-700">Terms of Service</a>
-                                and
-                                <a href="#" class="text-blue-600 hover:text-blue-700">Privacy Policy</a>
-                            </span>
-                        </label>
-
-                        <!-- Submit Button -->
-                        <button type="submit" id="signupButton"
-                            class="relative w-full py-3 bg-blue-600 text-white text-sm font-medium rounded-xl
-                            hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2
-                            transition-all duration-150">
-                            <span class="flex items-center justify-center">
-                                <span>Create account</span>
-                                <svg class="w-5 h-5 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
-                                        d="M14 5l7 7m0 0l-7 7m7-7H3"/>
-                                </svg>
-                            </span>
+                        <button type="submit" 
+                            class="w-full flex justify-center py-2 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                            Sign Up
                         </button>
                     </form>
                 </div>
@@ -222,7 +152,10 @@
     </div>
 
     <script>
-        // ... (Previous JavaScript with password strength indicator) ...
+        function redirectToDashboard(event) {
+            event.preventDefault();
+            window.location.href = '/dashboard';
+        }
     </script>
 </body>
 </html> 
