@@ -20,6 +20,14 @@
         "dest": "/public/dashboard.html"
       },
       {
+        "src": "^/signup",
+        "dest": "/public/signup.html"
+      },
+      {
+        "src": "^/login",
+        "dest": "/public/login.html"
+      },
+      {
         "src": "^/$",
         "dest": "/public/index.html"
       },

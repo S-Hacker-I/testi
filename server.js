@@ -5,7 +5,7 @@ const app = express();
 // Serve static files from 'public' directory
 app.use(express.static('public'));
 
-// All main routes should serve the dashboard
+// Main routes
 const dashboardRoutes = [
     '/dashboard',
     '/analytics',
@@ -15,10 +15,20 @@ const dashboardRoutes = [
     '/profile'
 ];
 
+// Dashboard routes
 dashboardRoutes.forEach(route => {
     app.get(route, (req, res) => {
         res.sendFile(path.join(__dirname, 'public', 'dashboard.html'));
     });
+});
+
+// Auth routes
+app.get('/signup', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'signup.html'));
+});
+
+app.get('/login', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'login.html'));
 });
 
 // Home route
@@ -28,7 +38,6 @@ app.get('/', (req, res) => {
 
 // API routes (if needed)
 app.get('/api/user', (req, res) => {
-    // Add your API logic here
     res.json({ status: 'success' });
 });
 
