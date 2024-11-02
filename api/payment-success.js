@@ -13,15 +13,12 @@ export default async function handler(req, res) {
             const userId = session.metadata.userId;
             const credits = parseInt(session.metadata.credits);
             
-            // Use Vercel KV instead of file system
+            // Get current credits and add new ones
             const currentCredits = await kv.get(`credits:${userId}`) || 0;
             const newCredits = currentCredits + credits;
             await kv.set(`credits:${userId}`, newCredits);
             
-            res.json({ 
-                success: true, 
-                credits: newCredits 
-            });
+            res.status(200).json({ success: true, credits: newCredits });
         } else {
             res.status(400).json({ error: 'Payment not completed' });
         }

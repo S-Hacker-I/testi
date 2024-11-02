@@ -33,8 +33,8 @@ export default async function handler(req, res) {
                 quantity: 1,
             }],
             mode: 'payment',
-            success_url: `https://testi-gilt.vercel.app/success?session_id={CHECKOUT_SESSION_ID}`,
-            cancel_url: `https://testi-gilt.vercel.app`,
+            success_url: `${req.headers.origin}/success?session_id={CHECKOUT_SESSION_ID}`,
+            cancel_url: `${req.headers.origin}`,
             metadata: {
                 userId,
                 credits: package.credits.toString()

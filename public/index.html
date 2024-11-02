@@ -80,6 +80,18 @@
                     </div>
                 </div>
 
+                <!-- Add this right after the prompt input -->
+                <div id="error-message" class="hidden text-red-600 text-sm mt-2"></div>
+
+                <!-- Update the spinner -->
+                <div id="spinner" class="hidden flex items-center justify-center gap-2">
+                    <svg class="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <span>Generating image...</span>
+                </div>
+
                 <!-- Generate Button -->
                 <button 
                     id="generate"
@@ -94,9 +106,9 @@
         </div>
 
         <!-- Result Section -->
-        <div id="result" class="bg-white/90 backdrop-blur-sm rounded-xl shadow-lg p-6 hidden">
-            <div class="generated-image-container mx-auto mb-4">
-                <img id="generated-image" class="generated-image rounded-lg shadow-lg" />
+        <div id="result" class="hidden mt-8">
+            <div class="generated-image-container bg-white/50 backdrop-blur-sm rounded-xl shadow-lg p-4">
+                <img id="generated-image" class="generated-image rounded-lg" alt="Generated image">
             </div>
             <button 
                 id="download"
@@ -224,7 +236,7 @@
 
         async function checkCredits() {
             try {
-                const response = await fetch(`/api/check-credits`, {
+                const response = await fetch('/api/check-credits', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ userId })
@@ -248,7 +260,7 @@
 
         async function purchaseCredits(amount) {
             try {
-                const response = await fetch(`https://testi-gilt.vercel.app/api/purchase-credits`, {
+                const response = await fetch('/api/purchase-credits', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ userId, amount })
@@ -330,47 +342,96 @@
         // Buy credits button handler
         document.getElementById('buy-credits').addEventListener('click', showPurchaseModal);
 
-        // Modify the result display logic
+        // Add this function for better error handling
+        function showError(message) {
+            alert(message);
+            // You could also create a nicer error UI component
+        }
+
+        // Update the generate button click handler
         document.getElementById('generate').addEventListener('click', async () => {
             const prompt = document.getElementById('prompt').value;
             if (!prompt.trim()) {
-                alert('Please enter a prompt');
+                showError('Please enter a prompt');
                 return;
             }
 
             const button = document.getElementById('generate');
             const spinner = document.getElementById('spinner');
-            button.disabled = true;
-            spinner.classList.remove('hidden');
+            const resultContainer = document.getElementById('result');
+            const downloadButton = document.getElementById('download');
 
             try {
+                // Disable button and show spinner
+                button.disabled = true;
+                spinner.classList.remove('hidden');
+                resultContainer.classList.add('hidden');
+                downloadButton.classList.add('hidden');
+
+                console.log('Starting image generation with prompt:', prompt);
+
+                const userId = localStorage.getItem('userId');
+                if (!userId) {
+                    throw new Error('User ID not found');
+                }
+
                 const response = await fetch('/api/generate-image', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ prompt, userId })
                 });
 
+                console.log('Received response from server:', response.status);
+
                 if (!response.ok) {
-                    throw new Error('Failed to generate image');
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Failed to generate image');
                 }
 
                 const data = await response.json();
-                document.getElementById('generated-image').src = data.image;
-                document.getElementById('result').classList.remove('hidden');
-                document.getElementById('download').classList.remove('hidden');
                 
+                // Update the image and show it
+                const generatedImage = document.getElementById('generated-image');
+                generatedImage.src = data.image;
+                resultContainer.classList.remove('hidden');
+                downloadButton.classList.remove('hidden');
+
+                // Update credits display
                 if (data.credits !== undefined) {
                     document.getElementById('credits-display').textContent = data.credits;
                 }
+
+                // Add loading handler for image
+                generatedImage.onload = () => {
+                    console.log('Image loaded successfully');
+                };
+
+                generatedImage.onerror = () => {
+                    console.error('Error loading generated image');
+                    showError('Error displaying the generated image');
+                };
+
             } catch (error) {
-                console.error('Error:', error);
-                alert('Failed to generate image. Please try again.');
+                console.error('Error during image generation:', error);
+                showError(error.message || 'Failed to generate image. Please try again.');
             } finally {
+                // Re-enable button and hide spinner
                 button.disabled = false;
                 spinner.classList.add('hidden');
             }
         });
 
+        // Add this function for downloading images
+        function downloadImage(imageUrl, promptText) {
+            const link = document.createElement('a');
+            link.href = imageUrl;
+            link.download = `${promptText.slice(0, 30)}_${Date.now()}.jpg`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        // Update the download button handler
         document.getElementById('download').addEventListener('click', () => {
             const imageUrl = document.getElementById('generated-image').src;
             const promptText = document.getElementById('prompt').value;
@@ -383,12 +444,12 @@
             const sessionId = urlParams.get('session_id');
             
             if (sessionId) {
-                fetch(`https://testi-gilt.vercel.app/api/payment-success?session_id=${sessionId}`)
+                fetch(`/api/payment-success?session_id=${sessionId}`)
                     .then(response => response.json())
                     .then(data => {
                         if (data.success) {
                             alert(`Successfully purchased ${data.credits} credits!`);
-                            checkCredits(); // Update credits display
+                            window.location.href = '/'; // Redirect to homepage
                         }
                     })
                     .catch(error => {
