@@ -1,5 +1,21 @@
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
-const { kv } = require('@vercel/kv');
+const fs = require('fs').promises;
+const path = require('path');
+
+const CREDITS_FILE = path.join(process.cwd(), 'data', 'credits.json');
+
+async function readCredits() {
+    try {
+        const data = await fs.readFile(CREDITS_FILE, 'utf8');
+        return JSON.parse(data);
+    } catch (error) {
+        return {};
+    }
+}
+
+async function writeCredits(credits) {
+    await fs.writeFile(CREDITS_FILE, JSON.stringify(credits, null, 2));
+}
 
 export default async function handler(req, res) {
     if (req.method !== 'GET') {
@@ -11,14 +27,14 @@ export default async function handler(req, res) {
         
         if (session.payment_status === 'paid') {
             const userId = session.metadata.userId;
-            const credits = parseInt(session.metadata.credits);
+            const purchasedCredits = parseInt(session.metadata.credits);
             
-            // Get current credits and add new ones
-            const currentCredits = await kv.get(`credits:${userId}`) || 0;
-            const newCredits = currentCredits + credits;
-            await kv.set(`credits:${userId}`, newCredits);
+            const credits = await readCredits();
+            const currentCredits = credits[userId] || 0;
+            credits[userId] = currentCredits + purchasedCredits;
+            await writeCredits(credits);
             
-            res.status(200).json({ success: true, credits: newCredits });
+            res.status(200).json({ success: true, credits: credits[userId] });
         } else {
             res.status(400).json({ error: 'Payment not completed' });
         }

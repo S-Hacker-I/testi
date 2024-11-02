@@ -1,5 +1,21 @@
 const axios = require('axios');
-const { kv } = require('@vercel/kv');
+const fs = require('fs').promises;
+const path = require('path');
+
+const CREDITS_FILE = path.join(process.cwd(), 'data', 'credits.json');
+
+async function readCredits() {
+    try {
+        const data = await fs.readFile(CREDITS_FILE, 'utf8');
+        return JSON.parse(data);
+    } catch (error) {
+        return {};
+    }
+}
+
+async function writeCredits(credits) {
+    await fs.writeFile(CREDITS_FILE, JSON.stringify(credits, null, 2));
+}
 
 export default async function handler(req, res) {
     if (req.method !== 'POST') {
@@ -14,10 +30,11 @@ export default async function handler(req, res) {
         }
 
         // Check credits
-        const credits = await kv.get(`credits:${userId}`) || 0;
-        console.log(`User ${userId} has ${credits} credits`);
+        const credits = await readCredits();
+        const userCredits = credits[userId] || 0;
+        console.log(`User ${userId} has ${userCredits} credits`);
         
-        if (credits < 1) {
+        if (userCredits < 1) {
             return res.status(402).json({ error: 'Insufficient credits' });
         }
 
@@ -39,14 +56,14 @@ export default async function handler(req, res) {
             timeout: 120000 // 2 minutes timeout
         });
 
-        // Deduct credit before generating image
-        const newCredits = credits - 1;
-        await kv.set(`credits:${userId}`, newCredits);
+        // Deduct credit
+        credits[userId] = userCredits - 1;
+        await writeCredits(credits);
 
         const base64Image = Buffer.from(response.data).toString('base64');
         res.status(200).json({ 
             image: `data:image/jpeg;base64,${base64Image}`,
-            credits: newCredits
+            credits: credits[userId]
         });
     } catch (error) {
         console.error('Error generating image:', error);
