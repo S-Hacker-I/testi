@@ -14,21 +14,28 @@ app.use(express.static('public'));
 
 const CREDITS_FILE = path.join(__dirname, 'data', 'credits.json');
 
+// Add CORS headers for Vercel
+app.use((req, res, next) => {
+    res.setHeader('Access-Control-Allow-Origin', 'https://testi-gilt.vercel.app');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    next();
+});
+
 // Initialize storage
 async function initializeStorage() {
-    console.log('Initializing storage...');
     try {
-        await fs.mkdir(path.join(__dirname, 'data'), { recursive: true });
-        try {
-            await fs.access(CREDITS_FILE);
-            console.log('Credits file exists');
-        } catch {
-            console.log('Creating new credits file');
-            await fs.writeFile(CREDITS_FILE, JSON.stringify({}));
-        }
-    } catch (error) {
-        console.error('Error initializing storage:', error);
-        await fs.writeFile(CREDITS_FILE, JSON.stringify({}));
+        await fs.access(path.dirname(CREDITS_FILE));
+    } catch {
+        await fs.mkdir(path.dirname(CREDITS_FILE), { recursive: true });
+    }
+
+    try {
+        await fs.access(CREDITS_FILE);
+        console.log('Credits file exists');
+    } catch {
+        await fs.writeFile(CREDITS_FILE, JSON.stringify({}, null, 2));
+        console.log('Created new credits file');
     }
 }
 
@@ -228,8 +235,9 @@ app.post('/api/create-checkout-session', async (req, res) => {
             return res.status(400).json({ error: 'Invalid package' });
         }
 
-        const successUrl = `${req.protocol}://${req.get('host')}/success?session_id={CHECKOUT_SESSION_ID}`;
-        const cancelUrl = `${req.protocol}://${req.get('host')}`;
+        // Use absolute URLs for Vercel
+        const successUrl = 'https://testi-gilt.vercel.app/success?session_id={CHECKOUT_SESSION_ID}';
+        const cancelUrl = 'https://testi-gilt.vercel.app';
 
         const session = await stripe.checkout.sessions.create({
             payment_method_types: ['card'],
@@ -317,4 +325,7 @@ app.get('/', (req, res) => {
 
 app.get('/success', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'success.html'));
-}); 
+});
+
+// Export the Express app for Vercel
+module.exports = app; 
