@@ -4,7 +4,6 @@ const fs = require('fs/promises');
 const path = require('path');
 const axios = require('axios');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
-const { kv } = require('@vercel/kv');
 
 const app = express();
 
@@ -32,8 +31,9 @@ const CREDIT_PACKAGES = [
 app.post('/api/check-credits', async (req, res) => {
     try {
         const { userId } = req.body;
-        const credits = await kv.get(`credits:${userId}`) || 5; // Default 5 credits
-        res.json({ credits });
+        const credits = await readCredits();
+        const userCredits = credits[userId] || 5; // Default 5 credits
+        res.json({ credits: userCredits });
     } catch (error) {
         console.error('Error checking credits:', error);
         res.status(500).json({ error: error.message });
@@ -86,13 +86,14 @@ app.get('/api/payment-success', async (req, res) => {
         
         if (session.payment_status === 'paid') {
             const userId = session.metadata.userId;
-            const credits = parseInt(session.metadata.credits);
+            const purchasedCredits = parseInt(session.metadata.credits);
             
-            const currentCredits = await kv.get(`credits:${userId}`) || 0;
-            const newCredits = currentCredits + credits;
-            await kv.set(`credits:${userId}`, newCredits);
+            const credits = await readCredits();
+            const currentCredits = credits[userId] || 0;
+            credits[userId] = currentCredits + purchasedCredits;
+            await writeCredits(credits);
             
-            res.json({ success: true, credits: newCredits });
+            res.json({ success: true, credits: credits[userId] });
         } else {
             res.status(400).json({ error: 'Payment not completed' });
         }
@@ -112,10 +113,11 @@ app.post('/api/generate-image', async (req, res) => {
         }
 
         // Check credits
-        const credits = await kv.get(`credits:${userId}`) || 0;
-        console.log(`User ${userId} has ${credits} credits`);
+        const credits = await readCredits();
+        const userCredits = credits[userId] || 0;
+        console.log(`User ${userId} has ${userCredits} credits`);
         
-        if (credits < 1) {
+        if (userCredits < 1) {
             return res.status(402).json({ error: 'Insufficient credits' });
         }
 
@@ -138,13 +140,13 @@ app.post('/api/generate-image', async (req, res) => {
         });
 
         // Deduct credit
-        const newCredits = credits - 1;
-        await kv.set(`credits:${userId}`, newCredits);
+        credits[userId] = userCredits - 1;
+        await writeCredits(credits);
 
         const base64Image = Buffer.from(response.data).toString('base64');
         res.json({ 
             image: `data:image/jpeg;base64,${base64Image}`,
-            credits: newCredits
+            credits: credits[userId]
         });
     } catch (error) {
         console.error('Error generating image:', error);
@@ -174,3 +176,20 @@ app.listen(PORT, () => {
 });
 
 module.exports = app;
+
+const CREDITS_FILE = path.join(__dirname, 'credits.json');
+
+// Helper function to read/write credits
+async function readCredits() {
+    try {
+        const data = await fs.readFile(CREDITS_FILE, 'utf8');
+        return JSON.parse(data);
+    } catch (error) {
+        // If file doesn't exist, return empty object
+        return {};
+    }
+}
+
+async function writeCredits(credits) {
+    await fs.writeFile(CREDITS_FILE, JSON.stringify(credits, null, 2));
+}
