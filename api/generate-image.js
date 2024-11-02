@@ -1,5 +1,5 @@
 const axios = require('axios');
-require('dotenv').config();
+const { kv } = require('@vercel/kv');
 
 export default async function handler(req, res) {
     if (req.method !== 'POST') {
@@ -9,6 +9,12 @@ export default async function handler(req, res) {
     try {
         const { prompt, userId } = req.body;
         
+        // Check credits
+        const credits = await kv.get(`credits:${userId}`) || 0;
+        if (credits < 1) {
+            return res.status(402).json({ error: 'Insufficient credits' });
+        }
+
         const response = await axios({
             method: 'post',
             url: 'https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0',
@@ -17,13 +23,18 @@ export default async function handler(req, res) {
                 'Content-Type': 'application/json'
             },
             data: { inputs: prompt },
-            responseType: 'arraybuffer'
+            responseType: 'arraybuffer',
+            timeout: 60000
         });
+
+        // Deduct credit
+        const newCredits = credits - 1;
+        await kv.set(`credits:${userId}`, newCredits);
 
         const base64Image = Buffer.from(response.data).toString('base64');
         res.status(200).json({ 
             image: `data:image/jpeg;base64,${base64Image}`,
-            credits: 1 // Temporary, will be updated with proper credit system
+            credits: newCredits
         });
     } catch (error) {
         console.error('Error generating image:', error);

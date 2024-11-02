@@ -296,18 +296,22 @@
                 document.body.removeChild(modalElement);
             });
 
-            modalElement.querySelectorAll('.package-option').forEach(option => {
+            document.querySelectorAll('.package-option').forEach(option => {
                 option.addEventListener('click', async () => {
                     const packageId = option.dataset.packageId;
                     try {
-                        const response = await fetch(`https://testi-gilt.vercel.app/api/create-checkout-session`, {
+                        const response = await fetch('/api/create-checkout-session', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ packageId, userId })
+                            body: JSON.stringify({ 
+                                packageId, 
+                                userId: localStorage.getItem('userId') 
+                            })
                         });
 
                         if (!response.ok) {
-                            throw new Error('Failed to create checkout session');
+                            const error = await response.json();
+                            throw new Error(error.message || 'Failed to create checkout session');
                         }
 
                         const { url } = await response.json();
