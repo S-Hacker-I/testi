@@ -66,7 +66,7 @@ async function writeCredits(credits) {
         await fs.mkdir(DATA_DIR, { recursive: true });
         
         // Write the credits file
-        await fs.writeFile(CREDITS_FILE, JSON.stringify(credits), 'utf8');
+        await fs.writeFile(CREDITS_FILE, JSON.stringify(credits, null, 2), 'utf8');
         console.log('Credits written successfully');
         return true;
     } catch (error) {
@@ -95,8 +95,11 @@ app.post('/api/check-credits', async (req, res) => {
 app.post('/api/create-checkout-session', async (req, res) => {
     try {
         const { packageId, userId } = req.body;
+        if (!packageId || !userId) {
+            return res.status(400).json({ error: 'Missing required fields' });
+        }
+
         const package = CREDIT_PACKAGES.find(p => p.id === packageId);
-        
         if (!package) {
             return res.status(400).json({ error: 'Invalid package' });
         }
@@ -107,16 +110,16 @@ app.post('/api/create-checkout-session', async (req, res) => {
                 price_data: {
                     currency: 'usd',
                     product_data: {
-                        name: `${package.credits} Credits`,
-                        description: package.name
+                        name: `${package.credits} AI Image Generation Credits`,
+                        description: `${package.name} - ${package.credits} credits for generating AI images`
                     },
                     unit_amount: package.price * 100,
                 },
                 quantity: 1,
             }],
             mode: 'payment',
-            success_url: `${req.protocol}://${req.get('host')}/success?session_id={CHECKOUT_SESSION_ID}`,
-            cancel_url: `${req.protocol}://${req.get('host')}`,
+            success_url: `${process.env.VERCEL_URL ? 'https://' + process.env.VERCEL_URL : 'http://localhost:3000'}/success?session_id={CHECKOUT_SESSION_ID}`,
+            cancel_url: `${process.env.VERCEL_URL ? 'https://' + process.env.VERCEL_URL : 'http://localhost:3000'}`,
             metadata: {
                 userId,
                 credits: package.credits.toString()
@@ -172,3 +175,10 @@ app.get('/api/payment-success', async (req, res) => {
 app.listen(port, () => {
     console.log(`Server running on port ${port}`);
 });
+
+// Add this near the top of server.js, after the middleware
+const CREDIT_PACKAGES = [
+    { id: 'credits_10', credits: 10, price: 5, name: 'Basic Pack' },
+    { id: 'credits_25', credits: 25, price: 10, name: 'Popular Pack' },
+    { id: 'credits_50', credits: 50, price: 18, name: 'Pro Pack' }
+];
