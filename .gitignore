@@ -9,10 +9,6 @@ node_modules/
 .env.production
 .env.development
 
-# Firebase
-serviceAccountKey.json
-firebase-credentials.json
-
 # Logs and temp files
 *.log
 npm-debug.log*
@@ -25,12 +21,8 @@ dist/
 build/
 .vercel
 
-# Keys and certificates
-*.pem
-*.key
-*.cert
-
-# Ignore service account keys and other sensitive files
-*.key
-*.pem
-credentials.json
+# IDE specific files
+.vscode/
+.idea/
+*.swp
+*.swo 
