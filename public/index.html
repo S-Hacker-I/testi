@@ -353,66 +353,97 @@
             }, 5000);
         }
 
-        // Update the generate button click handler
-        document.getElementById('generate').addEventListener('click', async () => {
-            const prompt = document.getElementById('prompt').value;
-            if (!prompt.trim()) {
-                showError('Please enter a prompt');
-                return;
+        // Add these functions
+        function handleApiError(error) {
+            if (error.response) {
+                switch (error.response.status) {
+                    case 403:
+                        return 'Insufficient credits. Please purchase more credits.';
+                    case 429:
+                        return 'Too many requests. Please try again later.';
+                    case 503:
+                        return 'Service temporarily unavailable. Please try again later.';
+                    default:
+                        return error.response.data?.error || 'An unexpected error occurred';
+                }
             }
+            return 'Network error. Please check your connection.';
+        }
 
-            const button = document.getElementById('generate');
-            const spinner = document.getElementById('spinner');
-            const resultContainer = document.getElementById('result');
-            const downloadButton = document.getElementById('download');
-
+        // Update the generate button handler
+        document.getElementById('generate').addEventListener('click', async () => {
             try {
-                // Disable button and show spinner
+                // Add loading state
+                const button = document.getElementById('generate');
                 button.disabled = true;
-                spinner.classList.remove('hidden');
-                resultContainer.classList.add('hidden');
-                downloadButton.classList.add('hidden');
+                button.innerHTML = '<span class="spinner"></span> Generating...';
 
-                const userId = localStorage.getItem('userId');
-                if (!userId) {
-                    throw new Error('User ID not found');
+                const prompt = document.getElementById('prompt').value;
+                if (!prompt.trim()) {
+                    showError('Please enter a prompt');
+                    return;
                 }
 
-                const response = await fetch('/api/generate-image', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ prompt, userId })
-                });
+                const button = document.getElementById('generate');
+                const spinner = document.getElementById('spinner');
+                const resultContainer = document.getElementById('result');
+                const downloadButton = document.getElementById('download');
 
-                if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.error || 'Failed to generate image');
-                }
+                try {
+                    // Disable button and show spinner
+                    button.disabled = true;
+                    spinner.classList.remove('hidden');
+                    resultContainer.classList.add('hidden');
+                    downloadButton.classList.add('hidden');
 
-                const data = await response.json();
-                
-                if (!data.success || !data.image) {
-                    throw new Error('Invalid response from server');
-                }
+                    const userId = localStorage.getItem('userId');
+                    if (!userId) {
+                        throw new Error('User ID not found');
+                    }
 
-                // Update the image and show it
-                const generatedImage = document.getElementById('generated-image');
-                generatedImage.src = data.image;
-                resultContainer.classList.remove('hidden');
-                downloadButton.classList.remove('hidden');
+                    const response = await fetch('/api/generate-image', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ prompt, userId })
+                    });
 
-                // Update credits display
-                if (data.credits !== undefined) {
-                    document.getElementById('credits-display').textContent = data.credits;
+                    if (!response.ok) {
+                        const errorData = await response.json();
+                        throw new Error(errorData.error || 'Failed to generate image');
+                    }
+
+                    const data = await response.json();
+                    
+                    if (!data.success || !data.image) {
+                        throw new Error('Invalid response from server');
+                    }
+
+                    // Update the image and show it
+                    const generatedImage = document.getElementById('generated-image');
+                    generatedImage.src = data.image;
+                    resultContainer.classList.remove('hidden');
+                    downloadButton.classList.remove('hidden');
+
+                    // Update credits display
+                    if (data.credits !== undefined) {
+                        document.getElementById('credits-display').textContent = data.credits;
+                    }
+
+                } catch (error) {
+                    const errorMessage = handleApiError(error);
+                    showError(errorMessage);
+                } finally {
+                    // Re-enable button and hide spinner
+                    button.disabled = false;
+                    spinner.classList.add('hidden');
                 }
 
             } catch (error) {
-                console.error('Error during image generation:', error);
-                showError(error.message || 'Failed to generate image');
+                const errorMessage = handleApiError(error);
+                showError(errorMessage);
             } finally {
-                // Re-enable button and hide spinner
                 button.disabled = false;
-                spinner.classList.add('hidden');
+                button.innerHTML = 'Generate Image';
             }
         });
 

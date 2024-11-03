@@ -5,6 +5,8 @@ const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const axios = require('axios');
 const admin = require('firebase-admin');
 const fs = require('fs').promises;
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 
 // Convert \n characters to actual newlines
 const privateKey = process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n');
@@ -47,6 +49,21 @@ const port = process.env.PORT || 3000;
 // Middleware
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
+
+// Add security middleware
+app.use(helmet({
+    contentSecurityPolicy: {
+        directives: {
+            defaultSrc: ["'self'"],
+            scriptSrc: ["'self'", "'unsafe-inline'", 'js.stripe.com', 'cdn.tailwindcss.com'],
+            styleSrc: ["'self'", "'unsafe-inline'", 'fonts.googleapis.com'],
+            imgSrc: ["'self'", 'data:', 'https:'],
+            connectSrc: ["'self'", 'api.stripe.com'],
+            fontSrc: ["'self'", 'fonts.gstatic.com'],
+            frameSrc: ["'self'", 'js.stripe.com']
+        }
+    }
+}));
 
 // Add error handling middleware
 app.use((err, req, res, next) => {
@@ -121,6 +138,16 @@ app.post('/api/check-credits', async (req, res) => {
 
 app.post('/api/generate-image', async (req, res) => {
     try {
+        // Add input validation
+        if (!prompt || prompt.length > 1000) {
+            return res.status(400).json({ error: 'Invalid prompt length' });
+        }
+
+        // Add timeout handling
+        const timeoutMs = 30000;
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
         const { prompt, userId } = req.body;
 
         if (!prompt || !userId) {
@@ -148,8 +175,12 @@ app.post('/api/generate-image', async (req, res) => {
                     wait_for_model: true
                 }
             }),
-            responseType: 'arraybuffer'
+            responseType: 'arraybuffer',
+            signal: controller.signal,
+            timeout: timeoutMs
         });
+
+        clearTimeout(timeoutId);
 
         // Convert image to base64
         const base64Image = Buffer.from(response.data).toString('base64');
@@ -167,6 +198,9 @@ app.post('/api/generate-image', async (req, res) => {
         });
 
     } catch (error) {
+        if (error.code === 'ECONNABORTED') {
+            return res.status(503).json({ error: 'Service timeout' });
+        }
         console.error('Error generating image:', error);
         
         // Send proper error response
@@ -179,11 +213,15 @@ app.post('/api/generate-image', async (req, res) => {
 
 app.post('/api/create-checkout-session', async (req, res) => {
     try {
-        const { packageId, userId } = req.body;
+        // Add validation
+        if (!userId || typeof userId !== 'string') {
+            return res.status(400).json({ error: 'Invalid user ID' });
+        }
+
+        // Add package validation
         const package = CREDIT_PACKAGES.find(p => p.id === packageId);
-        
         if (!package) {
-            return res.status(400).json({ error: 'Invalid package' });
+            return res.status(400).json({ error: 'Invalid package selected' });
         }
 
         const session = await stripe.checkout.sessions.create({
@@ -210,8 +248,11 @@ app.post('/api/create-checkout-session', async (req, res) => {
 
         res.json({ url: session.url });
     } catch (error) {
-        console.error('Error creating checkout session:', error);
-        res.status(500).json({ error: 'Failed to create checkout session' });
+        console.error('Stripe error:', error);
+        res.status(500).json({
+            error: 'Payment processing error',
+            message: error.message
+        });
     }
 });
 
@@ -287,3 +328,48 @@ app.use((err, req, res, next) => {
     logError(err, 'Global error handler');
     res.status(500).json({ error: 'Internal server error' });
 });
+
+// Replace direct environment variables with a secure config
+const getFirebaseConfig = () => {
+    try {
+        return {
+            type: "service_account",
+            project_id: process.env.FIREBASE_PROJECT_ID,
+            private_key: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+            client_email: process.env.FIREBASE_CLIENT_EMAIL,
+            client_id: process.env.FIREBASE_CLIENT_ID,
+            auth_uri: "https://accounts.google.com/o/oauth2/auth",
+            token_uri: "https://oauth2.googleapis.com/token",
+            auth_provider_x509_cert_url: "https://www.googleapis.com/oauth2/v1/certs",
+            client_x509_cert_url: process.env.FIREBASE_CLIENT_X509_CERT_URL
+        };
+    } catch (error) {
+        console.error('Firebase config error:', error);
+        throw new Error('Invalid Firebase configuration');
+    }
+};
+
+const apiLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 100 // limit each IP to 100 requests per windowMs
+});
+
+app.use('/api/', apiLimiter);
+
+// Add at the start of your server.js
+function validateEnv() {
+    const required = [
+        'HUGGINGFACE_API_KEY',
+        'STRIPE_SECRET_KEY',
+        'FIREBASE_PROJECT_ID',
+        'FIREBASE_PRIVATE_KEY',
+        'FIREBASE_CLIENT_EMAIL'
+    ];
+
+    const missing = required.filter(key => !process.env[key]);
+    if (missing.length) {
+        throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
+    }
+}
+
+validateEnv();

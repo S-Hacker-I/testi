@@ -6,6 +6,11 @@ node_modules/
 .env.local
 .env.*.local
 .env.production
+.env.development
+.vercel
+*.log
+dist/
+build/
 
 # Service account keys and sensitive files
 serviceAccountKey.json
