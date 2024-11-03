@@ -242,18 +242,19 @@
                     body: JSON.stringify({ userId })
                 });
 
-                if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.error || 'Failed to check credits');
+                const data = await response.json();
+                
+                if (!data.success) {
+                    throw new Error(data.message || 'Failed to check credits');
                 }
 
-                const data = await response.json();
                 const credits = data.credits;
                 document.getElementById('credits-display').textContent = credits;
                 return credits;
             } catch (error) {
                 console.error('Error checking credits:', error);
-                document.getElementById('credits-display').textContent = '?';
+                document.getElementById('credits-display').textContent = '0';
+                showError('Failed to load credits. Please refresh the page.');
                 throw error;
             }
         }

@@ -7,35 +7,31 @@ const admin = require('firebase-admin');
 const fs = require('fs').promises;
 
 // Initialize Firebase Admin with proper error handling
+let db;
 try {
     if (!admin.apps.length) {
-        // Parse the private key properly for production environment
-        const privateKey = process.env.FIREBASE_PRIVATE_KEY 
-            ? process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n')
+        const privateKey = process.env.FIREBASE_PRIVATE_KEY
+            ? JSON.parse(process.env.FIREBASE_PRIVATE_KEY)
             : undefined;
 
-        admin.initializeApp({
+        const firebaseConfig = {
             credential: admin.credential.cert({
-                type: "service_account",
-                project_id: process.env.FIREBASE_PROJECT_ID,
-                private_key_id: process.env.FIREBASE_PRIVATE_KEY_ID,
-                private_key: privateKey,
-                client_email: process.env.FIREBASE_CLIENT_EMAIL,
-                client_id: process.env.FIREBASE_CLIENT_ID,
-                auth_uri: "https://accounts.google.com/o/oauth2/auth",
-                token_uri: "https://oauth2.googleapis.com/token",
-                auth_provider_x509_cert_url: "https://www.googleapis.com/oauth2/v1/certs",
-                client_x509_cert_url: process.env.FIREBASE_CLIENT_X509_CERT_URL
+                projectId: process.env.FIREBASE_PROJECT_ID,
+                clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+                privateKey: privateKey
             })
-        });
+        };
+
+        admin.initializeApp(firebaseConfig);
+        db = admin.firestore();
         console.log('Firebase initialized successfully');
+    } else {
+        db = admin.firestore();
     }
 } catch (error) {
     console.error('Firebase initialization error:', error);
-    throw error; // Throw the error to be caught by error handling middleware
 }
 
-const db = admin.firestore();
 const app = express();
 const port = process.env.PORT || 3000;
 
@@ -45,8 +41,12 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // Add error handling middleware
 app.use((err, req, res, next) => {
-    console.error('Error:', err);
-    res.status(500).json({ error: 'Internal server error', details: err.message });
+    console.error('Server error:', err);
+    res.status(500).json({ 
+        success: false,
+        error: 'Internal server error',
+        message: err.message 
+    });
 });
 
 // Credit packages
@@ -83,19 +83,29 @@ app.post('/api/check-credits', async (req, res) => {
         const { userId } = req.body;
         
         if (!userId) {
-            return res.status(400).json({ error: 'Missing userId' });
+            return res.status(400).json({ 
+                success: false,
+                error: 'Missing userId' 
+            });
+        }
+
+        if (!db) {
+            throw new Error('Database not initialized');
         }
 
         const doc = await db.collection('credits').doc(userId).get();
         const credits = doc.exists ? doc.data().credits : 5; // Default 5 credits
 
-        console.log(`Credits for user ${userId}:`, credits);
-        res.json({ credits });
+        res.json({ 
+            success: true,
+            credits 
+        });
     } catch (error) {
         console.error('Error checking credits:', error);
         res.status(500).json({ 
+            success: false,
             error: 'Failed to check credits',
-            details: error.message 
+            message: error.message 
         });
     }
 });
