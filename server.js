@@ -5,21 +5,17 @@ const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const axios = require('axios');
 const admin = require('firebase-admin');
 const fs = require('fs').promises;
+const serviceAccount = require('./serviceAccountKey.json');
+
+// Convert \n characters to actual newlines
+const privateKey = process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n');
 
 // Initialize Firebase Admin with proper error handling
 let db;
 try {
     if (!admin.apps.length) {
-        const privateKey = process.env.FIREBASE_PRIVATE_KEY
-            ? JSON.parse(process.env.FIREBASE_PRIVATE_KEY)
-            : undefined;
-
         const firebaseConfig = {
-            credential: admin.credential.cert({
-                projectId: process.env.FIREBASE_PROJECT_ID,
-                clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-                privateKey: privateKey
-            })
+            credential: admin.credential.cert(serviceAccount)
         };
 
         admin.initializeApp(firebaseConfig);
