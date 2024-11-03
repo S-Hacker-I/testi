@@ -4,6 +4,7 @@ const path = require('path');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const axios = require('axios');
 const admin = require('firebase-admin');
+const fs = require('fs').promises;
 
 // Initialize Firebase Admin
 if (!admin.apps.length) {
@@ -24,7 +25,13 @@ const port = process.env.PORT || 3000;
 
 // Middleware
 app.use(express.json());
-app.use(express.static('public'));
+app.use(express.static(path.join(__dirname, 'public')));
+
+// Add error handling middleware
+app.use((err, req, res, next) => {
+    console.error('Error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+});
 
 // Credit packages
 const CREDIT_PACKAGES = [
@@ -182,14 +189,46 @@ app.get('/api/payment-success', async (req, res) => {
 
 // Serve static files
 app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+    try {
+        res.sendFile(path.join(__dirname, 'public', 'index.html'));
+    } catch (error) {
+        console.error('Error serving index.html:', error);
+        res.status(500).send('Error loading page');
+    }
 });
 
 app.get('/success', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'success.html'));
+    try {
+        res.sendFile(path.join(__dirname, 'public', 'success.html'));
+    } catch (error) {
+        console.error('Error serving success.html:', error);
+        res.status(500).send('Error loading success page');
+    }
 });
 
-// Start server
-app.listen(port, () => {
+// Add before the static middleware
+async function ensurePublicDirectory() {
+    try {
+        await fs.access(path.join(__dirname, 'public'));
+    } catch {
+        console.warn('Public directory not found, creating...');
+        await fs.mkdir(path.join(__dirname, 'public'), { recursive: true });
+    }
+}
+
+// Call it when starting the server
+app.listen(port, async () => {
+    await ensurePublicDirectory();
     console.log(`Server running on port ${port}`);
+});
+
+function logError(error, context) {
+    console.error(`[${new Date().toISOString()}] ${context}:`, error);
+    console.error('Stack:', error.stack);
+}
+
+// Use it in your error handlers
+app.use((err, req, res, next) => {
+    logError(err, 'Global error handler');
+    res.status(500).json({ error: 'Internal server error' });
 });
