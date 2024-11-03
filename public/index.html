@@ -97,7 +97,7 @@
                     id="generate"
                     class="w-full sm:w-auto px-6 py-3 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg hover:from-blue-600 hover:to-blue-700 transition-all duration-200 flex items-center justify-center gap-2 shadow-md hover:shadow-lg">
                     <span>Generate Image</span>
-                    <svg id="spinner" class="animate-spin h-5 w-5 hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <svg id="button-spinner" class="animate-spin h-5 w-5 hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                         <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                         <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                     </svg>
@@ -242,20 +242,23 @@
                     body: JSON.stringify({ userId })
                 });
 
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
                 const data = await response.json();
                 
                 if (!data.success) {
                     throw new Error(data.message || 'Failed to check credits');
                 }
 
-                const credits = data.credits;
-                document.getElementById('credits-display').textContent = credits;
-                return credits;
+                document.getElementById('credits-display').textContent = data.credits;
+                return data.credits;
             } catch (error) {
                 console.error('Error checking credits:', error);
-                document.getElementById('credits-display').textContent = '0';
+                document.getElementById('credits-display').textContent = '?';
                 showError('Failed to load credits. Please refresh the page.');
-                throw error;
+                return 0;
             }
         }
 
@@ -355,8 +358,14 @@
 
         // Add these functions
         function handleApiError(error) {
+            console.error('Full error:', error);
+            
             if (error.response) {
                 switch (error.response.status) {
+                    case 400:
+                        return 'Invalid request. Please check your input.';
+                    case 401:
+                        return 'Authentication failed. Please refresh the page.';
                     case 403:
                         return 'Insufficient credits. Please purchase more credits.';
                     case 429:
@@ -367,16 +376,16 @@
                         return error.response.data?.error || 'An unexpected error occurred';
                 }
             }
-            return 'Network error. Please check your connection.';
+            return error.message || 'Network error. Please check your connection.';
         }
 
         // Update the generate button handler
         document.getElementById('generate').addEventListener('click', async () => {
             try {
                 // Add loading state
-                const button = document.getElementById('generate');
-                button.disabled = true;
-                button.innerHTML = '<span class="spinner"></span> Generating...';
+                const generateButton = document.getElementById('generate');
+                generateButton.disabled = true;
+                generateButton.innerHTML = '<span class="spinner"></span> Generating...';
 
                 const prompt = document.getElementById('prompt').value;
                 if (!prompt.trim()) {
