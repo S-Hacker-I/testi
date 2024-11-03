@@ -1,76 +1,55 @@
 require('dotenv').config();
 const express = require('express');
 const path = require('path');
-const fs = require('fs').promises;
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const axios = require('axios');
+const admin = require('firebase-admin');
 
+// Initialize Firebase Admin
+if (!admin.apps.length) {
+    admin.initializeApp({
+        credential: admin.credential.cert({
+            projectId: process.env.FIREBASE_PROJECT_ID,
+            privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+            clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+            clientId: process.env.FIREBASE_CLIENT_ID,
+            privateKeyId: process.env.FIREBASE_PRIVATE_KEY_ID
+        })
+    });
+}
+
+const db = admin.firestore();
 const app = express();
 const port = process.env.PORT || 3000;
 
 // Middleware
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static('public'));
 
-// Add security headers
-app.use((req, res, next) => {
-    res.setHeader('Content-Security-Policy', "default-src 'self' https: 'unsafe-inline' 'unsafe-eval'; img-src 'self' data: https:;");
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('X-Frame-Options', 'DENY');
-    res.setHeader('X-XSS-Protection', '1; mode=block');
-    next();
-});
+// Credit packages
+const CREDIT_PACKAGES = [
+    { id: 'credits_10', credits: 10, price: 5, name: 'Basic Pack' },
+    { id: 'credits_25', credits: 25, price: 10, name: 'Popular Pack' },
+    { id: 'credits_50', credits: 50, price: 18, name: 'Pro Pack' }
+];
 
-// Serve static files
-app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
-app.get('/success', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'success.html'));
-});
-
-// Credits file path - Update for Vercel
-const DATA_DIR = process.env.VERCEL ? '/tmp' : path.join(__dirname, 'data');
-const CREDITS_FILE = path.join(DATA_DIR, 'credits.json');
-
-// Helper functions for credits
-async function readCredits() {
+// Helper functions for credits using Firestore
+async function getUserCredits(userId) {
     try {
-        // Ensure directory exists
-        try {
-            await fs.access(DATA_DIR);
-        } catch {
-            await fs.mkdir(DATA_DIR, { recursive: true });
-        }
-
-        // Try to read the credits file
-        try {
-            const data = await fs.readFile(CREDITS_FILE, 'utf8');
-            return JSON.parse(data);
-        } catch {
-            // If file doesn't exist, create it with empty object
-            const initialData = {};
-            await fs.writeFile(CREDITS_FILE, JSON.stringify(initialData), 'utf8');
-            return initialData;
-        }
+        const doc = await db.collection('credits').doc(userId).get();
+        return doc.exists ? doc.data().credits : 5; // Default 5 credits
     } catch (error) {
         console.error('Error reading credits:', error);
-        return {};
+        return 5; // Default credits on error
     }
 }
 
-async function writeCredits(credits) {
+async function updateUserCredits(userId, credits) {
     try {
-        // Ensure directory exists
-        await fs.mkdir(DATA_DIR, { recursive: true });
-        
-        // Write the credits file
-        await fs.writeFile(CREDITS_FILE, JSON.stringify(credits, null, 2), 'utf8');
-        console.log('Credits written successfully');
+        await db.collection('credits').doc(userId).set({ credits });
         return true;
     } catch (error) {
-        console.error('Error writing credits:', error);
+        console.error('Error updating credits:', error);
         return false;
     }
 }
@@ -82,24 +61,60 @@ app.post('/api/check-credits', async (req, res) => {
         if (!userId) {
             return res.status(400).json({ error: 'Missing userId' });
         }
-
-        const credits = await readCredits();
-        const userCredits = credits[userId] || 5; // Default 5 credits
-        res.json({ credits: userCredits });
+        const credits = await getUserCredits(userId);
+        res.json({ credits });
     } catch (error) {
         console.error('Error checking credits:', error);
         res.status(500).json({ error: 'Internal server error' });
     }
 });
 
+app.post('/api/generate-image', async (req, res) => {
+    try {
+        const { prompt, userId } = req.body;
+        if (!prompt || !userId) {
+            return res.status(400).json({ error: 'Missing prompt or userId' });
+        }
+
+        const credits = await getUserCredits(userId);
+        if (credits < 1) {
+            return res.status(402).json({ error: 'Insufficient credits' });
+        }
+
+        const response = await axios({
+            method: 'post',
+            url: 'https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0',
+            headers: {
+                'Authorization': `Bearer ${process.env.HUGGINGFACE_API_KEY}`,
+                'Content-Type': 'application/json'
+            },
+            data: { 
+                inputs: prompt,
+                options: { wait_for_model: true }
+            },
+            responseType: 'arraybuffer',
+            timeout: 120000
+        });
+
+        // Deduct credit
+        await updateUserCredits(userId, credits - 1);
+        
+        const base64Image = Buffer.from(response.data).toString('base64');
+        res.json({ 
+            image: `data:image/jpeg;base64,${base64Image}`,
+            credits: credits - 1
+        });
+    } catch (error) {
+        console.error('Error generating image:', error);
+        res.status(500).json({ error: 'Failed to generate image' });
+    }
+});
+
 app.post('/api/create-checkout-session', async (req, res) => {
     try {
         const { packageId, userId } = req.body;
-        if (!packageId || !userId) {
-            return res.status(400).json({ error: 'Missing required fields' });
-        }
-
         const package = CREDIT_PACKAGES.find(p => p.id === packageId);
+        
         if (!package) {
             return res.status(400).json({ error: 'Invalid package' });
         }
@@ -110,8 +125,8 @@ app.post('/api/create-checkout-session', async (req, res) => {
                 price_data: {
                     currency: 'usd',
                     product_data: {
-                        name: `${package.credits} AI Image Generation Credits`,
-                        description: `${package.name} - ${package.credits} credits for generating AI images`
+                        name: `${package.credits} Credits`,
+                        description: package.name
                     },
                     unit_amount: package.price * 100,
                 },
@@ -146,20 +161,14 @@ app.get('/api/payment-success', async (req, res) => {
             const userId = session.metadata.userId;
             const purchasedCredits = parseInt(session.metadata.credits);
             
-            const credits = await readCredits();
-            const currentCredits = credits[userId] || 0;
-            credits[userId] = currentCredits + purchasedCredits;
+            const currentCredits = await getUserCredits(userId);
+            const newCredits = currentCredits + purchasedCredits;
             
-            const writeSuccess = await writeCredits(credits);
-            if (!writeSuccess) {
-                throw new Error('Failed to write credits');
-            }
-            
-            console.log(`Updated credits for user ${userId}: ${currentCredits} + ${purchasedCredits} = ${credits[userId]}`);
+            await updateUserCredits(userId, newCredits);
             
             res.json({ 
                 success: true, 
-                credits: credits[userId],
+                credits: newCredits,
                 purchased: purchasedCredits
             });
         } else {
@@ -171,14 +180,16 @@ app.get('/api/payment-success', async (req, res) => {
     }
 });
 
+// Serve static files
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+app.get('/success', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'success.html'));
+});
+
 // Start server
 app.listen(port, () => {
     console.log(`Server running on port ${port}`);
 });
-
-// Add this near the top of server.js, after the middleware
-const CREDIT_PACKAGES = [
-    { id: 'credits_10', credits: 10, price: 5, name: 'Basic Pack' },
-    { id: 'credits_25', credits: 25, price: 10, name: 'Popular Pack' },
-    { id: 'credits_50', credits: 50, price: 18, name: 'Pro Pack' }
-];
