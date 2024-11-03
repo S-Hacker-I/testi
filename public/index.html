@@ -241,20 +241,20 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ userId })
                 });
-                
+
                 if (!response.ok) {
-                    throw new Error('Failed to check credits');
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Failed to check credits');
                 }
-                
-                const { credits } = await response.json();
-                const creditsDisplay = document.getElementById('credits-display');
-                if (creditsDisplay) {
-                    creditsDisplay.textContent = credits;
-                }
+
+                const data = await response.json();
+                const credits = data.credits;
+                document.getElementById('credits-display').textContent = credits;
                 return credits;
             } catch (error) {
                 console.error('Error checking credits:', error);
-                return 0;
+                document.getElementById('credits-display').textContent = '?';
+                throw error;
             }
         }
 
@@ -342,10 +342,14 @@
         // Buy credits button handler
         document.getElementById('buy-credits').addEventListener('click', showPurchaseModal);
 
-        // Add this function for better error handling
+        // Better error handling function
         function showError(message) {
-            alert(message);
-            // You could also create a nicer error UI component
+            const errorDiv = document.getElementById('error-message');
+            errorDiv.textContent = message;
+            errorDiv.classList.remove('hidden');
+            setTimeout(() => {
+                errorDiv.classList.add('hidden');
+            }, 5000);
         }
 
         // Update the generate button click handler
@@ -368,8 +372,6 @@
                 resultContainer.classList.add('hidden');
                 downloadButton.classList.add('hidden');
 
-                console.log('Starting image generation with prompt:', prompt);
-
                 const userId = localStorage.getItem('userId');
                 if (!userId) {
                     throw new Error('User ID not found');
@@ -381,8 +383,6 @@
                     body: JSON.stringify({ prompt, userId })
                 });
 
-                console.log('Received response from server:', response.status);
-
                 if (!response.ok) {
                     const errorData = await response.json();
                     throw new Error(errorData.error || 'Failed to generate image');
@@ -390,6 +390,10 @@
 
                 const data = await response.json();
                 
+                if (!data.success || !data.image) {
+                    throw new Error('Invalid response from server');
+                }
+
                 // Update the image and show it
                 const generatedImage = document.getElementById('generated-image');
                 generatedImage.src = data.image;
@@ -401,19 +405,9 @@
                     document.getElementById('credits-display').textContent = data.credits;
                 }
 
-                // Add loading handler for image
-                generatedImage.onload = () => {
-                    console.log('Image loaded successfully');
-                };
-
-                generatedImage.onerror = () => {
-                    console.error('Error loading generated image');
-                    showError('Error displaying the generated image');
-                };
-
             } catch (error) {
                 console.error('Error during image generation:', error);
-                showError(error.message || 'Failed to generate image. Please try again.');
+                showError(error.message || 'Failed to generate image');
             } finally {
                 // Re-enable button and hide spinner
                 button.disabled = false;

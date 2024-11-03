@@ -4,19 +4,28 @@ const path = require('path');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const axios = require('axios');
 const admin = require('firebase-admin');
-const fs = require('fs').promises;
 
-// Initialize Firebase Admin
-if (!admin.apps.length) {
-    admin.initializeApp({
-        credential: admin.credential.cert({
-            projectId: process.env.FIREBASE_PROJECT_ID,
-            privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-            clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-            clientId: process.env.FIREBASE_CLIENT_ID,
-            privateKeyId: process.env.FIREBASE_PRIVATE_KEY_ID
-        })
-    });
+// Initialize Firebase Admin with proper error handling
+try {
+    if (!admin.apps.length) {
+        admin.initializeApp({
+            credential: admin.credential.cert({
+                type: "service_account",
+                project_id: process.env.FIREBASE_PROJECT_ID,
+                private_key_id: process.env.FIREBASE_PRIVATE_KEY_ID,
+                private_key: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+                client_email: process.env.FIREBASE_CLIENT_EMAIL,
+                client_id: process.env.FIREBASE_CLIENT_ID,
+                auth_uri: "https://accounts.google.com/o/oauth2/auth",
+                token_uri: "https://oauth2.googleapis.com/token",
+                auth_provider_x509_cert_url: "https://www.googleapis.com/oauth2/v1/certs",
+                client_x509_cert_url: `https://www.googleapis.com/robot/v1/metadata/x509/${encodeURIComponent(process.env.FIREBASE_CLIENT_EMAIL)}`
+            })
+        });
+        console.log('Firebase initialized successfully');
+    }
+} catch (error) {
+    console.error('Firebase initialization error:', error);
 }
 
 const db = admin.firestore();
@@ -30,7 +39,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 // Add error handling middleware
 app.use((err, req, res, next) => {
     console.error('Error:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Internal server error', details: err.message });
 });
 
 // Credit packages
@@ -46,8 +55,8 @@ async function getUserCredits(userId) {
         const doc = await db.collection('credits').doc(userId).get();
         return doc.exists ? doc.data().credits : 5; // Default 5 credits
     } catch (error) {
-        console.error('Error reading credits:', error);
-        return 5; // Default credits on error
+        console.error('Error getting credits:', error);
+        throw error;
     }
 }
 
@@ -57,7 +66,7 @@ async function updateUserCredits(userId, credits) {
         return true;
     } catch (error) {
         console.error('Error updating credits:', error);
-        return false;
+        throw error;
     }
 }
 
@@ -65,55 +74,80 @@ async function updateUserCredits(userId, credits) {
 app.post('/api/check-credits', async (req, res) => {
     try {
         const { userId } = req.body;
+        
         if (!userId) {
             return res.status(400).json({ error: 'Missing userId' });
         }
-        const credits = await getUserCredits(userId);
+
+        const doc = await db.collection('credits').doc(userId).get();
+        const credits = doc.exists ? doc.data().credits : 5; // Default 5 credits
+
+        console.log(`Credits for user ${userId}:`, credits);
         res.json({ credits });
     } catch (error) {
         console.error('Error checking credits:', error);
-        res.status(500).json({ error: 'Internal server error' });
+        res.status(500).json({ 
+            error: 'Failed to check credits',
+            details: error.message 
+        });
     }
 });
 
 app.post('/api/generate-image', async (req, res) => {
     try {
         const { prompt, userId } = req.body;
+
         if (!prompt || !userId) {
             return res.status(400).json({ error: 'Missing prompt or userId' });
         }
 
-        const credits = await getUserCredits(userId);
-        if (credits < 1) {
-            return res.status(402).json({ error: 'Insufficient credits' });
+        // Check user credits
+        const userCredits = await getUserCredits(userId);
+        
+        if (userCredits < 1) {
+            return res.status(403).json({ error: 'Insufficient credits' });
         }
 
+        // Call Hugging Face API
         const response = await axios({
-            method: 'post',
-            url: 'https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0',
+            url: "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0",
+            method: 'POST',
             headers: {
-                'Authorization': `Bearer ${process.env.HUGGINGFACE_API_KEY}`,
-                'Content-Type': 'application/json'
+                Authorization: `Bearer ${process.env.HUGGINGFACE_API_KEY}`,
+                'Content-Type': 'application/json',
             },
-            data: { 
+            data: JSON.stringify({
                 inputs: prompt,
-                options: { wait_for_model: true }
-            },
-            responseType: 'arraybuffer',
-            timeout: 120000
+                options: {
+                    wait_for_model: true
+                }
+            }),
+            responseType: 'arraybuffer'
         });
 
-        // Deduct credit
-        await updateUserCredits(userId, credits - 1);
-        
+        // Convert image to base64
         const base64Image = Buffer.from(response.data).toString('base64');
-        res.json({ 
-            image: `data:image/jpeg;base64,${base64Image}`,
-            credits: credits - 1
+        const imageUrl = `data:image/jpeg;base64,${base64Image}`;
+
+        // Deduct credit
+        const newCredits = userCredits - 1;
+        await updateUserCredits(userId, newCredits);
+
+        // Return success response
+        res.json({
+            success: true,
+            image: imageUrl,
+            credits: newCredits
         });
+
     } catch (error) {
         console.error('Error generating image:', error);
-        res.status(500).json({ error: 'Failed to generate image' });
+        
+        // Send proper error response
+        res.status(500).json({
+            error: 'Failed to generate image',
+            message: error.message
+        });
     }
 });
 
