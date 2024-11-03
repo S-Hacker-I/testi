@@ -4,6 +4,7 @@ const path = require('path');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const axios = require('axios');
 const admin = require('firebase-admin');
+const fs = require('fs').promises;
 
 // Initialize Firebase Admin with proper error handling
 try {
@@ -242,12 +243,7 @@ app.get('/success', (req, res) => {
 
 // Add before the static middleware
 async function ensurePublicDirectory() {
-    try {
-        await fs.access(path.join(__dirname, 'public'));
-    } catch {
-        console.warn('Public directory not found, creating...');
-        await fs.mkdir(path.join(__dirname, 'public'), { recursive: true });
-    }
+    await fs.mkdir(path.join(__dirname, 'public'), { recursive: true });
 }
 
 // Call it when starting the server
