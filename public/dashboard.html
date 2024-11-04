@@ -285,13 +285,12 @@
             
             try {
                 const db = firebase.firestore();
-                
-                // First try to get purchases without ordering
-                const simpleQuery = db.collection('purchases')
+                const purchasesRef = db.collection('purchases')
                     .where('userId', '==', currentUser.uid)
+                    .orderBy('timestamp', 'desc')
                     .limit(5);
 
-                const snapshot = await simpleQuery.get();
+                const snapshot = await purchasesRef.get();
                 
                 if (snapshot.empty) {
                     purchaseHistory.innerHTML = '<div class="text-gray-500">No purchase history available</div>';
@@ -317,7 +316,6 @@
                 }).join('');
 
                 purchaseHistory.innerHTML = purchasesHTML;
-
             } catch (error) {
                 console.error('Purchase history error:', error);
                 purchaseHistory.innerHTML = '<div class="text-red-500">Failed to load purchase history</div>';
@@ -342,31 +340,24 @@
                 buyButton.disabled = true;
                 buyButton.innerHTML = '<div class="loading-spinner mr-2"></div>Processing...';
 
-                // Create checkout session
                 const response = await fetch('/api/create-points-checkout', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         points,
                         userId: currentUser.uid,
-                        email: currentUser.email // Add user's email for Stripe checkout
+                        email: currentUser.email
                     })
                 });
 
-                const { sessionId } = await response.json();
+                const { url } = await response.json();
                 
                 // Redirect to Stripe checkout
-                const result = await stripe.redirectToCheckout({
-                    sessionId: sessionId
-                });
-
-                if (result.error) {
-                    throw new Error(result.error.message);
-                }
+                window.location.href = url;
 
             } catch (error) {
                 console.error('Checkout error:', error);
-                showError(error.message || 'Failed to start checkout');
+                showError('Failed to start checkout');
                 buyButton.disabled = false;
                 buyButton.innerHTML = 'Purchase Points';
             }
