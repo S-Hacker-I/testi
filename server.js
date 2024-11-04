@@ -10,6 +10,9 @@ const crypto = require('crypto');
 
 const app = express();
 
+// Add this line before other middleware to trust proxy headers from Vercel
+app.set('trust proxy', 1);
+
 // Initialize Firebase Admin
 admin.initializeApp({
     credential: admin.credential.cert({
@@ -79,11 +82,25 @@ app.use(helmet({
     crossOriginEmbedderPolicy: false
 }));
 
-// Rate limiter for checkout endpoint
+// More specific rate limiter configuration
 const checkoutLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: 10,
-    message: { error: 'Too many checkout attempts, please try again later' }
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 10, // Limit each IP to 10 requests per windowMs
+    message: { error: 'Too many checkout attempts, please try again later' },
+    standardHeaders: true,
+    legacyHeaders: false,
+    // Add a custom handler for when rate limit is exceeded
+    handler: (req, res) => {
+        console.log('Rate limit exceeded for IP:', req.ip);
+        res.status(429).json({
+            error: 'Too many checkout attempts, please try again later',
+            retryAfter: Math.ceil(req.rateLimit.resetTime / 1000)
+        });
+    },
+    // Custom key generator to use both IP and user ID if available
+    keyGenerator: (req) => {
+        return req.body.userId ? `${req.ip}-${req.body.userId}` : req.ip;
+    }
 });
 
 // Serve static files
