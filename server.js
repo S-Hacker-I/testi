@@ -155,19 +155,27 @@ async function handleSuccessfulPayment(session) {
         throw new Error('Missing required metadata');
     }
 
+    // First, ensure the user document exists
     const userRef = admin.firestore().collection('users').doc(userId);
     const purchaseRef = userRef.collection('purchases').doc();
     
     try {
-        await admin.firestore().runTransaction(async (transaction) => {
-            const userDoc = await transaction.get(userRef);
-            
-            if (!userDoc.exists) {
-                console.error('User not found:', userId);
-                throw new Error('User not found');
-            }
+        // Check if user exists first
+        const userDoc = await userRef.get();
+        if (!userDoc.exists) {
+            // Create user document if it doesn't exist
+            await userRef.set({
+                points: 0,
+                created: admin.firestore.FieldValue.serverTimestamp(),
+                lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+            });
+            console.log('Created new user document:', userId);
+        }
 
-            const currentPoints = userDoc.data().points || 0;
+        // Now proceed with the transaction
+        await admin.firestore().runTransaction(async (transaction) => {
+            const freshUserDoc = await transaction.get(userRef);
+            const currentPoints = freshUserDoc.data()?.points || 0;
             const pointsToAdd = parseInt(points, 10);
             const newPoints = currentPoints + pointsToAdd;
             
@@ -184,7 +192,7 @@ async function handleSuccessfulPayment(session) {
                 lastUpdated: admin.firestore.FieldValue.serverTimestamp()
             });
 
-            // Create detailed purchase record
+            // Create purchase record
             transaction.set(purchaseRef, {
                 points: pointsToAdd,
                 amount: session.amount_total,

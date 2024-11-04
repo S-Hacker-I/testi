@@ -284,6 +284,19 @@
             const modalPurchaseHistory = document.getElementById('modalPurchaseHistory');
             
             try {
+                // First check if user document exists
+                const userDoc = await firebase.firestore()
+                    .collection('users')
+                    .doc(currentUser.uid)
+                    .get();
+
+                if (!userDoc.exists) {
+                    const noHistoryMessage = '<div class="text-gray-500">No purchase history available</div>';
+                    purchaseHistory.innerHTML = noHistoryMessage;
+                    modalPurchaseHistory.innerHTML = noHistoryMessage;
+                    return;
+                }
+
                 const purchasesRef = firebase.firestore()
                     .collection('users')
                     .doc(currentUser.uid)
