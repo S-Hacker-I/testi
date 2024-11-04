@@ -179,31 +179,38 @@
         let currentUser = null;
         let userPoints = 0;
 
-        // Initialize Firebase
+        // Initialize Firebase first
         async function initializeFirebase() {
             try {
-                const response = await fetch('/api/firebase-config');
-                if (!response.ok) throw new Error('Failed to load Firebase configuration');
-                const firebaseConfig = await response.json();
-                
                 // Initialize Firebase if not already initialized
                 if (!firebase.apps.length) {
-                    firebase.initializeApp(firebaseConfig);
+                    firebase.initializeApp({
+                        apiKey: "AIzaSyCmToewamZs5HVBMpWWnAnlafjolZdWJK8",
+                        authDomain: "test-d4c13.firebaseapp.com",
+                        projectId: "test-d4c13",
+                        storageBucket: "test-d4c13.appspot.com",
+                        messagingSenderId: "771743673319",
+                        appId: "1:771743673319:web:61e563fa2f5f98a6beeb42",
+                        measurementId: "G-ZQ2TB34NT9"
+                    });
                 }
-                
-                // Set persistence to local
-                await firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL);
-                
-                // Check authentication state
-                firebase.auth().onAuthStateChanged((user) => {
-                    if (user) {
+
+                // Wait for auth state to be ready
+                await new Promise((resolve) => {
+                    firebase.auth().onAuthStateChanged((user) => {
                         currentUser = user;
-                        initializeUserData();
-                        setupPointsListener();
-                    } else {
-                        window.location.href = '/auth';
-                    }
+                        if (user) {
+                            resolve();
+                        } else {
+                            window.location.href = '/auth';
+                        }
+                    });
                 });
+
+                // Initialize other features
+                await initializeUserData();
+                setupPointsListener();
+                loadPurchaseHistory();
             } catch (error) {
                 console.error('Firebase initialization error:', error);
                 showError('Failed to initialize application');
@@ -420,10 +427,15 @@
         }
 
         async function startPointsCheckout() {
+            if (!currentUser) {
+                showError('Please log in to purchase points');
+                return;
+            }
+
             const points = parseInt(document.getElementById('pointsToBuy').value);
             
-            if (points < 10 || points > 5000) {
-                showError('Please select between 10 and 5,000 points');
+            if (isNaN(points) || points < 10 || points > 5000) {
+                showError('Please select between 10 and 5000 points');
                 return;
             }
 
@@ -439,12 +451,16 @@
                     })
                 });
 
-                if (!response.ok) throw new Error('Failed to create checkout session');
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Failed to create checkout session');
+                }
+
                 const data = await response.json();
                 window.location.href = data.url;
             } catch (error) {
-                showError('Failed to start checkout');
                 console.error('Checkout error:', error);
+                showError(error.message || 'Failed to start checkout');
             }
         }
 
@@ -578,47 +594,57 @@
 
         // Add this function to load purchase history
         async function loadPurchaseHistory() {
-            const user = firebase.auth().currentUser;
-            if (!user) return;
+            if (!currentUser) return;
 
-            const purchasesRef = firebase.firestore()
-                .collection('users')
-                .doc(user.uid)
-                .collection('purchases')
-                .orderBy('timestamp', 'desc')
-                .limit(5);
-
-            const purchaseHistory = document.getElementById('purchaseHistory');
-            
-            purchasesRef.onSnapshot((snapshot) => {
-                purchaseHistory.innerHTML = '';
-                
-                if (snapshot.empty) {
-                    purchaseHistory.innerHTML = '<p class="text-gray-500">No purchase history available</p>';
+            try {
+                const purchaseHistory = document.getElementById('purchaseHistory');
+                if (!purchaseHistory) {
+                    console.error('Purchase history element not found');
                     return;
                 }
 
-                snapshot.forEach((doc) => {
-                    const purchase = doc.data();
-                    const date = purchase.timestamp.toDate().toLocaleDateString();
-                    const amount = (purchase.amount / 100).toFixed(2);
+                const purchasesRef = firebase.firestore()
+                    .collection('users')
+                    .doc(currentUser.uid)
+                    .collection('purchases')
+                    .orderBy('timestamp', 'desc')
+                    .limit(5);
+
+                purchasesRef.onSnapshot((snapshot) => {
+                    if (!purchaseHistory) return; // Double check element exists
+
+                    purchaseHistory.innerHTML = '';
                     
-                    purchaseHistory.innerHTML += `
-                        <div class="bg-white p-4 rounded-lg shadow-sm">
-                            <div class="flex justify-between items-center">
-                                <div>
-                                    <p class="font-medium">${purchase.points} Points</p>
-                                    <p class="text-sm text-gray-500">${date}</p>
+                    if (snapshot.empty) {
+                        purchaseHistory.innerHTML = '<p class="text-gray-500">No purchase history available</p>';
+                        return;
+                    }
+
+                    snapshot.forEach((doc) => {
+                        const purchase = doc.data();
+                        const date = purchase.timestamp?.toDate().toLocaleDateString() || 'N/A';
+                        const amount = ((purchase.amount || 0) / 100).toFixed(2);
+                        
+                        purchaseHistory.innerHTML += `
+                            <div class="bg-white p-4 rounded-lg shadow-sm">
+                                <div class="flex justify-between items-center">
+                                    <div>
+                                        <p class="font-medium">${purchase.points || 0} Points</p>
+                                        <p class="text-sm text-gray-500">${date}</p>
+                                    </div>
+                                    <p class="text-green-600 font-medium">$${amount}</p>
                                 </div>
-                                <p class="text-green-600 font-medium">$${amount}</p>
                             </div>
-                        </div>
-                    `;
+                        `;
+                    });
+                }, (error) => {
+                    console.error('Purchase history error:', error);
+                    showError('Failed to load purchase history');
                 });
-            }, (error) => {
-                console.error('Purchase history error:', error);
+            } catch (error) {
+                console.error('Load purchase history error:', error);
                 showError('Failed to load purchase history');
-            });
+            }
         }
 
         // Call this function after Firebase initialization
