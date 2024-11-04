@@ -139,7 +139,18 @@
         let currentUser = null;
         let userPoints = 0;
         let unsubscribePoints = null;
-        const stripe = Stripe('pk_test_51Q29viG4174RoWzOFy40ibq4i4afBFB8qbuOwlCIcnVFt8MvbrGFt24Q1cS5Q68EC3etAbbtTQYYCcSXydQbCAWb00QzOqnnGG');
+        let stripe;
+
+        async function initializeStripe() {
+            try {
+                const response = await fetch('/api/config');
+                const config = await response.json();
+                stripe = Stripe(config.stripePublishableKey);
+            } catch (error) {
+                console.error('Failed to initialize Stripe:', error);
+                showError('Failed to initialize payment system');
+            }
+        }
 
         // Initialize Firebase
         firebase.initializeApp(firebaseConfig);
@@ -153,8 +164,10 @@
             });
 
         // Page Initialization
-        document.addEventListener('DOMContentLoaded', () => {
+        document.addEventListener('DOMContentLoaded', async () => {
+            await initializeStripe();
             setupEventListeners();
+            
             const urlParams = new URLSearchParams(window.location.search);
             if (urlParams.get('success') === 'true') {
                 showSuccess('Payment successful! Your points have been added.');

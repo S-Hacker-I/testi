@@ -24,12 +24,23 @@ app.post('/api/webhook',
     express.raw({ type: 'application/json' }),
     async (req, res) => {
         const sig = req.headers['stripe-signature'];
+        console.log('Webhook received:', {
+            signature: sig ? 'present' : 'missing',
+            bodyType: typeof req.body
+        });
+        
         try {
             const event = stripe.webhooks.constructEvent(
                 req.body,
                 sig,
                 process.env.STRIPE_WEBHOOK_SECRET
             );
+
+            console.log('Webhook event:', {
+                type: event.type,
+                id: event.id,
+                metadata: event.data.object.metadata
+            });
 
             if (event.type === 'checkout.session.completed') {
                 const session = event.data.object;
@@ -90,12 +101,11 @@ app.post('/api/create-points-checkout', checkoutLimiter, async (req, res) => {
     try {
         const { points, userId } = req.body;
 
-        if (!points || !userId) {
-            return res.status(400).json({ error: 'Missing required parameters' });
+        if (!points || !userId || points < 10 || points > 5000) {
+            return res.status(400).json({ error: 'Invalid points amount' });
         }
 
-        const unitAmount = 10; // 10 cents per point
-        const totalAmount = unitAmount * points;
+        console.log('Creating checkout session:', { points, userId });
 
         const session = await stripe.checkout.sessions.create({
             payment_method_types: ['card'],
@@ -106,66 +116,86 @@ app.post('/api/create-points-checkout', checkoutLimiter, async (req, res) => {
                         name: `${points} Points Package`,
                         description: `Purchase ${points} points for TikSave`
                     },
-                    unit_amount: totalAmount
+                    unit_amount: 10 // 10 cents per point
                 },
-                quantity: 1
+                quantity: points
             }],
             mode: 'payment',
-            success_url: `${process.env.BASE_URL}/dashboard?success=true&points=${points}`,
+            success_url: `${process.env.BASE_URL}/dashboard?success=true`,
             cancel_url: `${process.env.BASE_URL}/dashboard?canceled=true`,
-            metadata: { userId, points: points.toString() }
+            metadata: {
+                userId,
+                points: points.toString()
+            }
         });
 
+        console.log('Checkout session created:', session.id);
         res.json({ url: session.url });
     } catch (error) {
-        console.error('Error creating checkout session:', error);
+        console.error('Checkout error:', error);
         res.status(500).json({ error: 'Failed to create checkout session' });
     }
 });
 
 // Process successful payment and update Firebase user points
 async function handleSuccessfulPayment(session) {
+    console.log('Processing payment:', {
+        sessionId: session.id,
+        metadata: session.metadata
+    });
+
     const { userId, points } = session.metadata;
 
     if (!userId || !points) {
-        console.error('Missing required metadata in session:', session.metadata);
-        throw new Error('User ID or points not provided in session metadata');
+        console.error('Missing metadata:', session.metadata);
+        throw new Error('Missing required metadata');
     }
 
     const userRef = admin.firestore().collection('users').doc(userId);
+    
     try {
         await admin.firestore().runTransaction(async (transaction) => {
             const userDoc = await transaction.get(userRef);
-
+            
             if (!userDoc.exists) {
-                console.error(`User document not found: ${userId}`);
+                console.error('User not found:', userId);
                 throw new Error('User not found');
             }
 
             const currentPoints = userDoc.data().points || 0;
-            const newPoints = currentPoints + parseInt(points, 10);
+            const pointsToAdd = parseInt(points, 10);
+            const newPoints = currentPoints + pointsToAdd;
+            
+            console.log('Points update:', {
+                userId,
+                currentPoints,
+                pointsToAdd,
+                newPoints
+            });
 
-            transaction.update(userRef, {
+            // Update user points
+            transaction.update(userRef, { 
                 points: newPoints,
                 lastUpdated: admin.firestore.FieldValue.serverTimestamp()
             });
 
-            // Record the purchase
+            // Create purchase record
             const purchaseRef = userRef.collection('purchases').doc();
             transaction.set(purchaseRef, {
-                points: parseInt(points, 10),
+                points: pointsToAdd,
                 amount: session.amount_total,
                 timestamp: admin.firestore.FieldValue.serverTimestamp(),
                 paymentId: session.payment_intent,
                 status: 'completed',
                 previousPoints: currentPoints,
-                newTotal: newPoints
+                newTotal: newPoints,
+                sessionId: session.id
             });
         });
 
-        console.log(`Successfully added ${points} points to user ${userId}`);
+        console.log('Transaction completed successfully');
     } catch (error) {
-        console.error('Failed to update user points in transaction:', error);
+        console.error('Transaction failed:', error);
         throw error;
     }
 }
@@ -183,4 +213,11 @@ app.use((err, req, res, next) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
+});
+
+// Add this endpoint to serve the publishable key to the client
+app.get('/api/config', (req, res) => {
+    res.json({
+        stripePublishableKey: process.env.STRIPE_PUBLISHABLE_KEY
+    });
 });
