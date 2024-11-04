@@ -229,11 +229,18 @@
                         unsubscribePoints();
                     }
                     
-                    // Set up new listener
+                    // Set up real-time listener for points updates
                     unsubscribePoints = userRef.onSnapshot((doc) => {
                         if (doc.exists) {
-                            userPoints = doc.data().points || 0;
-                            updatePointsDisplay();
+                            const newPoints = doc.data().points || 0;
+                            if (newPoints !== userPoints) {
+                                const difference = newPoints - userPoints;
+                                if (difference > 0) {
+                                    showSuccess(`+${difference} points added to your account!`);
+                                }
+                                userPoints = newPoints;
+                                updatePointsDisplay();
+                            }
                         }
                     }, (error) => {
                         console.error('Points listener error:', error);

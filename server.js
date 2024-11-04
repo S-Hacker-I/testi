@@ -125,7 +125,7 @@ app.post('/api/create-points-checkout', checkoutLimiter, async (req, res) => {
     }
 });
 
-// Add raw body parsing for webhook
+// Modify the webhook endpoint to better handle the payment completion
 app.post('/api/webhook', 
     express.raw({type: 'application/json'}), 
     async (req, res) => {
@@ -138,8 +138,11 @@ app.post('/api/webhook',
                 process.env.STRIPE_WEBHOOK_SECRET
             );
 
+            // Handle successful checkout
             if (event.type === 'checkout.session.completed') {
-                await handleSuccessfulPayment(event.data.object);
+                const session = event.data.object;
+                await handleSuccessfulPayment(session);
+                console.log(`Payment successful for user ${session.metadata.userId}`);
             }
 
             res.json({ received: true });
@@ -150,7 +153,7 @@ app.post('/api/webhook',
     }
 );
 
-// Add this helper function for payment processing
+// Optimize the payment handling function
 async function handleSuccessfulPayment(session) {
     const { userId, points } = session.metadata;
     
@@ -160,32 +163,41 @@ async function handleSuccessfulPayment(session) {
 
     const userRef = admin.firestore().collection('users').doc(userId);
     
-    await admin.firestore().runTransaction(async (transaction) => {
-        const userDoc = await transaction.get(userRef);
-        
-        if (!userDoc.exists) {
-            throw new Error('User not found');
-        }
+    try {
+        await admin.firestore().runTransaction(async (transaction) => {
+            const userDoc = await transaction.get(userRef);
+            
+            if (!userDoc.exists) {
+                throw new Error('User not found');
+            }
 
-        const currentPoints = userDoc.data().points || 0;
-        const newPoints = currentPoints + parseInt(points);
+            const currentPoints = userDoc.data().points || 0;
+            const newPoints = currentPoints + parseInt(points);
 
-        // Update points
-        transaction.update(userRef, { 
-            points: newPoints,
-            lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+            // Update user points
+            transaction.update(userRef, { 
+                points: newPoints,
+                lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+            });
+
+            // Record purchase transaction
+            const purchaseRef = userRef.collection('purchases').doc();
+            transaction.set(purchaseRef, {
+                points: parseInt(points),
+                amount: session.amount_total,
+                timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                paymentId: session.payment_intent,
+                status: 'completed',
+                previousPoints: currentPoints,
+                newTotal: newPoints
+            });
         });
 
-        // Record purchase
-        const purchaseRef = userRef.collection('purchases').doc();
-        transaction.set(purchaseRef, {
-            points: parseInt(points),
-            amount: session.amount_total,
-            timestamp: admin.firestore.FieldValue.serverTimestamp(),
-            paymentId: session.payment_intent,
-            status: 'completed'
-        });
-    });
+        console.log(`Successfully updated points for user ${userId}: +${points} points`);
+    } catch (error) {
+        console.error('Transaction failed:', error);
+        throw error; // Re-throw to be caught by webhook handler
+    }
 }
 
 // Add this after your other middleware
