@@ -56,15 +56,14 @@ app.post('/webhook', express.raw({type: 'application/json'}), async (request, re
             const session = event.data.object;
             
             try {
-                const { userId, points, type } = session.metadata;
+                const { userId, points } = session.metadata;
                 
                 if (!userId || !points) {
                     throw new Error('Missing metadata');
                 }
 
-                const userRef = admin.firestore().collection('users').doc(userId);
-                
                 // Use transaction for atomic updates
+                const userRef = admin.firestore().collection('users').doc(userId);
                 await admin.firestore().runTransaction(async (transaction) => {
                     const userDoc = await transaction.get(userRef);
                     
@@ -81,14 +80,13 @@ app.post('/webhook', express.raw({type: 'application/json'}), async (request, re
                         lastUpdated: admin.firestore.FieldValue.serverTimestamp()
                     });
 
-                    // Record purchase history
+                    // Record purchase
                     const purchaseRef = userRef.collection('purchases').doc();
                     transaction.set(purchaseRef, {
                         points: parseInt(points),
                         amount: session.amount_total,
                         timestamp: admin.firestore.FieldValue.serverTimestamp(),
                         paymentId: session.payment_intent,
-                        type: type || 'points_purchase',
                         status: 'completed'
                     });
                 });
@@ -97,14 +95,11 @@ app.post('/webhook', express.raw({type: 'application/json'}), async (request, re
                 response.json({ received: true });
             } catch (error) {
                 console.error('Webhook processing error:', error);
-                return response.status(500).send(`Webhook processing failed: ${error.message}`);
+                return response.status(500).send(`Webhook Error: ${error.message}`);
             }
-        } else {
-            // Handle other event types if needed
-            response.json({ received: true });
         }
     } catch (err) {
-        console.error('Webhook signature verification failed:', err.message);
+        console.error('Webhook signature verification failed:', err);
         return response.status(400).send(`Webhook Error: ${err.message}`);
     }
 });
@@ -251,11 +246,12 @@ app.get('/api/firebase-config', (req, res) => {
 
 // Add this new endpoint for points purchase
 app.post('/api/create-points-checkout', async (req, res) => {
-    console.log('Received checkout request:', req.body);
+    console.log('Points checkout request:', req.body);
 
     try {
         const { points, userId } = req.body;
         
+        // Validate inputs
         if (!userId || !points) {
             return res.status(400).json({ error: 'Missing required fields' });
         }
@@ -265,7 +261,13 @@ app.post('/api/create-points-checkout', async (req, res) => {
             return res.status(400).json({ error: 'Points must be between 10 and 5000' });
         }
 
-        // Create Stripe checkout session
+        // Verify user exists
+        const userDoc = await admin.firestore().collection('users').doc(userId).get();
+        if (!userDoc.exists) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        // Create checkout session
         const session = await stripe.checkout.sessions.create({
             payment_method_types: ['card'],
             line_items: [{
@@ -275,20 +277,20 @@ app.post('/api/create-points-checkout', async (req, res) => {
                         name: `${pointsNum} TikSave Points`,
                         description: 'Points for AI generations'
                     },
-                    unit_amount: 10, // $0.10 per point
+                    unit_amount: 10,
                 },
                 quantity: pointsNum,
             }],
             mode: 'payment',
-            success_url: `https://testi-gilt.vercel.app/dashboard?success=true&points=${pointsNum}`,
-            cancel_url: `https://testi-gilt.vercel.app/dashboard`,
+            success_url: `${process.env.NODE_ENV === 'production' ? 'https://testi-gilt.vercel.app' : 'http://localhost:3000'}/dashboard?success=true&points=${pointsNum}`,
+            cancel_url: `${process.env.NODE_ENV === 'production' ? 'https://testi-gilt.vercel.app' : 'http://localhost:3000'}/dashboard`,
             metadata: {
                 userId,
-                points: pointsNum.toString(),
-                type: 'points_purchase'
+                points: pointsNum.toString()
             }
         });
 
+        console.log('Checkout session created:', session.id);
         res.json({ url: session.url });
     } catch (error) {
         console.error('Points checkout error:', error);
@@ -323,6 +325,16 @@ app.use((err, req, res, next) => {
         error: 'Internal server error',
         details: process.env.NODE_ENV === 'development' ? err.message : undefined
     });
+});
+
+// Add this after your initial requires
+app.use((req, res, next) => {
+    console.log(`${req.method} ${req.path}`, {
+        body: req.method === 'POST' ? req.body : undefined,
+        query: req.query,
+        ip: req.ip
+    });
+    next();
 });
 
 const PORT = process.env.PORT || 3000;
