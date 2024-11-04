@@ -15,12 +15,10 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 const corsOptions = {
-    origin: process.env.NODE_ENV === 'production' 
-        ? ['https://testi-gilt.vercel.app'] 
-        : ['http://localhost:3000'],
-    methods: ['GET', 'POST'],
+    origin: ['https://testi-gilt.vercel.app'],
+    methods: ['GET', 'POST', 'OPTIONS'],
     credentials: true,
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
 };
 
 app.use(cors(corsOptions));
@@ -258,27 +256,14 @@ app.post('/api/create-points-checkout', async (req, res) => {
     try {
         const { points, userId } = req.body;
         
-        // Validate inputs
         if (!userId || !points) {
-            console.log('Missing required fields:', { userId, points });
             return res.status(400).json({ error: 'Missing required fields' });
         }
 
         const pointsNum = parseInt(points);
         if (isNaN(pointsNum) || pointsNum < 10 || pointsNum > 5000) {
-            console.log('Invalid points value:', pointsNum);
             return res.status(400).json({ error: 'Points must be between 10 and 5000' });
         }
-
-        // Verify user exists
-        const userDoc = await admin.firestore().collection('users').doc(userId).get();
-        if (!userDoc.exists) {
-            console.log('User not found:', userId);
-            return res.status(404).json({ error: 'User not found' });
-        }
-
-        // Calculate amount in cents ($0.10 per point)
-        const unitAmount = 10; // $0.10 in cents
 
         // Create Stripe checkout session
         const session = await stripe.checkout.sessions.create({
@@ -290,13 +275,13 @@ app.post('/api/create-points-checkout', async (req, res) => {
                         name: `${pointsNum} TikSave Points`,
                         description: 'Points for AI generations'
                     },
-                    unit_amount: unitAmount,
+                    unit_amount: 10, // $0.10 per point
                 },
                 quantity: pointsNum,
             }],
             mode: 'payment',
-            success_url: `${process.env.NODE_ENV === 'production' ? 'https://testi-gilt.vercel.app' : 'http://localhost:3000'}/dashboard?success=true&points=${pointsNum}`,
-            cancel_url: `${process.env.NODE_ENV === 'production' ? 'https://testi-gilt.vercel.app' : 'http://localhost:3000'}/dashboard`,
+            success_url: `https://testi-gilt.vercel.app/dashboard?success=true&points=${pointsNum}`,
+            cancel_url: `https://testi-gilt.vercel.app/dashboard`,
             metadata: {
                 userId,
                 points: pointsNum.toString(),
@@ -304,14 +289,10 @@ app.post('/api/create-points-checkout', async (req, res) => {
             }
         });
 
-        console.log('Checkout session created:', session.id);
         res.json({ url: session.url });
     } catch (error) {
         console.error('Points checkout error:', error);
-        res.status(500).json({ 
-            error: 'Failed to create checkout session',
-            details: error.message 
-        });
+        res.status(500).json({ error: 'Failed to create checkout session' });
     }
 });
 

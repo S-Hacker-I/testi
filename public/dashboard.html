@@ -476,7 +476,6 @@
 
                 // Show loading state
                 buyButton.disabled = true;
-                const originalContent = buyButton.innerHTML;
                 buyButton.innerHTML = `
                     <div class="flex items-center justify-center">
                         <div class="loading-spinner mr-2"></div>
@@ -484,12 +483,7 @@
                     </div>
                 `;
 
-                // Make sure we're using the correct URL based on environment
-                const baseUrl = window.location.hostname === 'localhost' 
-                    ? 'http://localhost:3000' 
-                    : 'https://testi-gilt.vercel.app';
-
-                const response = await fetch(`${baseUrl}/api/create-points-checkout`, {
+                const response = await fetch('https://testi-gilt.vercel.app/api/create-points-checkout', {
                     method: 'POST',
                     headers: { 
                         'Content-Type': 'application/json',
@@ -504,10 +498,8 @@
                 const data = await response.json();
                 if (!response.ok) throw new Error(data.error || 'Failed to create checkout session');
 
-                // Hide modal before redirect
+                // Hide modal and redirect
                 hideUpgradeModal();
-                
-                // Redirect to Stripe Checkout
                 window.location.href = data.url;
 
             } catch (error) {
@@ -517,7 +509,7 @@
                 // Reset button state
                 if (buyButton) {
                     buyButton.disabled = false;
-                    buyButton.innerHTML = originalContent;
+                    buyButton.innerHTML = 'Purchase Points';
                 }
             }
         }
