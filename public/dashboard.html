@@ -142,28 +142,74 @@
         let unsubscribePoints = null;
         const stripe = Stripe('pk_test_51Q29viG4174RoWzOFy40ibq4i4afBFB8qbuOwlCIcnVFt8MvbrGFt24Q1cS5Q68EC3etAbbtTQYYCcSXydQbCAWb00QzOqnnGG');
 
-        // Initialize Firebase with better error handling
-        async function initializeFirebase() {
+        // Initialize Firebase immediately
+        firebase.initializeApp(firebaseConfig);
+
+        // Enable persistence after initialization
+        firebase.firestore().enablePersistence({
+            synchronizeTabs: true
+        }).catch(err => {
+            if (err.code === 'failed-precondition') {
+                console.warn('Multiple tabs open, persistence can only be enabled in one tab at a time.');
+            } else if (err.code === 'unimplemented') {
+                console.warn('Browser doesn\'t support persistence');
+            }
+        });
+
+        // Initialize page
+        async function initializePage() {
             try {
-                if (!firebase.apps.length) {
-                    firebase.initializeApp(firebaseConfig);
-                    await firebase.firestore().enablePersistence({
-                        synchronizeTabs: true
-                    }).catch(err => {
-                        if (err.code === 'failed-precondition') {
-                            console.warn('Multiple tabs open, persistence can only be enabled in one tab at a time.');
-                        } else if (err.code === 'unimplemented') {
-                            console.warn('Browser doesn\'t support persistence');
-                        }
-                    });
+                const elements = {
+                    buyPoints: document.querySelector('[data-action="buy-points"]'),
+                    signOut: document.querySelector('[data-action="sign-out"]'),
+                    closeModal: document.querySelector('[data-action="close-modal"]'),
+                    decreasePoints: document.querySelector('[data-action="decrease-points"]'),
+                    increasePoints: document.querySelector('[data-action="increase-points"]'),
+                    pointsInput: document.querySelector('#pointsToBuy'),
+                    buyButton: document.querySelector('#buyPointsBtn')
+                };
+
+                // Verify all elements exist
+                Object.entries(elements).forEach(([name, element]) => {
+                    if (!element) {
+                        throw new Error(`Required element ${name} not found`);
+                    }
+                });
+
+                // Add event listeners with error handling
+                elements.buyPoints.addEventListener('click', showUpgradeModal);
+                elements.signOut.addEventListener('click', handleSignOut);
+                elements.closeModal.addEventListener('click', hideUpgradeModal);
+                elements.decreasePoints.addEventListener('click', () => adjustPoints(-10));
+                elements.increasePoints.addEventListener('click', () => adjustPoints(10));
+                elements.pointsInput.addEventListener('input', (e) => validatePoints(e.target));
+                elements.buyButton.addEventListener('click', startPointsCheckout);
+
+                // Check success parameter
+                const urlParams = new URLSearchParams(window.location.search);
+                if (urlParams.get('success') === 'true') {
+                    showSuccess('Payment successful! Your points have been added to your account.');
+                    window.history.replaceState({}, document.title, '/dashboard');
                 }
-                return true;
             } catch (error) {
-                console.error('Firebase initialization error:', error);
-                showError('Failed to initialize app');
-                return false;
+                console.error('Initialization error:', error);
+                showError('Failed to initialize page');
             }
         }
+
+        // Wait for DOM and initialize
+        document.addEventListener('DOMContentLoaded', initializePage);
+
+        // Set up auth state listener after Firebase is initialized
+        firebase.auth().onAuthStateChanged(async (user) => {
+            if (user) {
+                currentUser = user;
+                await initializeUserData();
+                loadPurchaseHistory();
+            } else {
+                window.location.href = '/auth';
+            }
+        });
 
         // Initialize user data
         async function initializeUserData() {
@@ -378,62 +424,6 @@
         function showSuccess(message) {
             showNotification(message, 'success');
         }
-
-        // Auth state handler
-        firebase.auth().onAuthStateChanged(async (user) => {
-            if (user) {
-                currentUser = user;
-                await initializeUserData();
-                loadPurchaseHistory();
-            } else {
-                window.location.href = '/auth';
-            }
-        });
-
-        // Initialize on page load
-        document.addEventListener('DOMContentLoaded', async () => {
-            try {
-                if (!await initializeFirebase()) {
-                    return;
-                }
-
-                const elements = {
-                    buyPoints: document.querySelector('[data-action="buy-points"]'),
-                    signOut: document.querySelector('[data-action="sign-out"]'),
-                    closeModal: document.querySelector('[data-action="close-modal"]'),
-                    decreasePoints: document.querySelector('[data-action="decrease-points"]'),
-                    increasePoints: document.querySelector('[data-action="increase-points"]'),
-                    pointsInput: document.querySelector('#pointsToBuy'),
-                    buyButton: document.querySelector('#buyPointsBtn')
-                };
-
-                // Verify all elements exist
-                Object.entries(elements).forEach(([name, element]) => {
-                    if (!element) {
-                        throw new Error(`Required element ${name} not found`);
-                    }
-                });
-
-                // Add event listeners with error handling
-                elements.buyPoints.addEventListener('click', showUpgradeModal);
-                elements.signOut.addEventListener('click', handleSignOut);
-                elements.closeModal.addEventListener('click', hideUpgradeModal);
-                elements.decreasePoints.addEventListener('click', () => adjustPoints(-10));
-                elements.increasePoints.addEventListener('click', () => adjustPoints(10));
-                elements.pointsInput.addEventListener('input', (e) => validatePoints(e.target));
-                elements.buyButton.addEventListener('click', startPointsCheckout);
-
-                // Check success parameter
-                const urlParams = new URLSearchParams(window.location.search);
-                if (urlParams.get('success') === 'true') {
-                    showSuccess('Payment successful! Your points have been added to your account.');
-                    window.history.replaceState({}, document.title, '/dashboard');
-                }
-            } catch (error) {
-                console.error('Initialization error:', error);
-                showError('Failed to initialize page');
-            }
-        });
 
         // Add this function after loadPurchaseHistory()
         async function updateModalPurchaseHistory() {
