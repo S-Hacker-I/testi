@@ -154,5 +154,77 @@ app.use((err, req, res, next) => {
     });
 });
 
+// Stripe webhook handler
+app.post('/api/webhook', express.raw({type: 'application/json'}), async (req, res) => {
+    const sig = req.headers['stripe-signature'];
+    console.log('Webhook received');
+
+    try {
+        const event = stripe.webhooks.constructEvent(
+            req.body,
+            sig,
+            process.env.STRIPE_WEBHOOK_SECRET
+        );
+
+        console.log('Webhook event type:', event.type);
+
+        if (event.type === 'checkout.session.completed') {
+            const session = event.data.object;
+            console.log('Processing successful payment:', session.id);
+
+            // Handle the successful payment
+            await handleSuccessfulPayment(session);
+        }
+
+        res.json({received: true});
+    } catch (err) {
+        console.error('Webhook Error:', err.message);
+        return res.status(400).send(`Webhook Error: ${err.message}`);
+    }
+});
+
+// Function to handle successful payments
+async function handleSuccessfulPayment(session) {
+    const { userId, points } = session.metadata;
+    const db = admin.firestore();
+    
+    console.log('Updating points for user:', userId, 'Points:', points);
+
+    try {
+        // Use a transaction to ensure data consistency
+        await db.runTransaction(async (transaction) => {
+            const userRef = db.collection('users').doc(userId);
+            const userDoc = await transaction.get(userRef);
+
+            // Calculate new points total
+            const currentPoints = userDoc.exists ? (userDoc.data().points || 0) : 0;
+            const pointsToAdd = parseInt(points);
+            const newTotal = currentPoints + pointsToAdd;
+
+            // Update user document
+            transaction.set(userRef, {
+                points: newTotal,
+                lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+            }, { merge: true });
+
+            // Create purchase record
+            const purchaseRef = db.collection('purchases').doc();
+            transaction.set(purchaseRef, {
+                userId: userId,
+                points: pointsToAdd,
+                amount: session.amount_total,
+                timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                sessionId: session.id,
+                status: 'completed'
+            });
+        });
+
+        console.log('Successfully updated points and created purchase record');
+    } catch (error) {
+        console.error('Error handling payment:', error);
+        throw error;
+    }
+}
+
 // Export for Vercel
 module.exports = app;

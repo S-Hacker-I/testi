@@ -299,24 +299,18 @@
             
             try {
                 const db = firebase.firestore();
-                // Simplified query without complex ordering
                 const purchasesRef = db.collection('purchases')
                     .where('userId', '==', currentUser.uid)
+                    .orderBy('timestamp', 'desc')
                     .limit(5);
 
-                // Create a real-time listener
-                purchasesRef.onSnapshot((snapshot) => {
+                const unsubscribe = purchasesRef.onSnapshot((snapshot) => {
                     if (snapshot.empty) {
                         purchaseHistory.innerHTML = '<div class="text-gray-500">No purchase history available</div>';
                         return;
                     }
 
-                    // Sort the documents in memory
-                    const docs = snapshot.docs.sort((a, b) => {
-                        return b.data().timestamp?.toMillis() - a.data().timestamp?.toMillis();
-                    });
-
-                    const purchasesHTML = docs.map(doc => {
+                    const purchasesHTML = snapshot.docs.map(doc => {
                         const purchase = doc.data();
                         const date = purchase.timestamp?.toDate().toLocaleDateString() || 'N/A';
                         const amount = ((purchase.amount || 0) / 100).toFixed(2);
@@ -340,6 +334,8 @@
                     purchaseHistory.innerHTML = '<div class="text-red-500">Failed to load purchase history</div>';
                 });
 
+                // Clean up listener when component unmounts
+                return () => unsubscribe();
             } catch (error) {
                 console.error('Purchase history error:', error);
                 purchaseHistory.innerHTML = '<div class="text-red-500">Failed to load purchase history</div>';
@@ -407,14 +403,19 @@
         async function checkPaymentStatus() {
             const urlParams = new URLSearchParams(window.location.search);
             const sessionId = urlParams.get('session_id');
+            const success = urlParams.get('success');
             
-            if (sessionId) {
+            if (sessionId && success === 'true') {
                 try {
                     const response = await fetch(`/api/checkout-session/${sessionId}`);
                     const session = await response.json();
                     
                     if (session.payment_status === 'paid') {
                         showSuccess('Payment successful! Your points will be added shortly.');
+                        // Refresh user data
+                        await loadUserData();
+                        // Refresh purchase history
+                        await loadPurchaseHistory();
                     }
                 } catch (error) {
                     console.error('Error checking payment status:', error);
