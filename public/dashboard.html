@@ -143,18 +143,26 @@
 
         async function initializeStripe() {
             try {
+                console.log('Initializing Stripe...');
                 const response = await fetch('/api/config');
+                
                 if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
+                    const errorData = await response.json();
+                    throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
                 }
+                
                 const config = await response.json();
+                console.log('Stripe config received');
+                
                 if (!config.stripePublishableKey) {
-                    throw new Error('Stripe publishable key not found');
+                    throw new Error('Stripe publishable key not found in config');
                 }
+                
                 stripe = Stripe(config.stripePublishableKey);
+                console.log('Stripe initialized successfully');
             } catch (error) {
-                console.error('Failed to initialize Stripe:', error);
-                showError('Failed to initialize payment system. Please try again later.');
+                console.error('Stripe initialization error:', error);
+                showError(`Payment system initialization failed: ${error.message}`);
             }
         }
 
