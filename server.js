@@ -25,57 +25,38 @@ app.post('/api/test-webhook', express.json(), async (req, res) => {
     res.json({ received: true });
 });
 
-// Enhanced webhook endpoint with more logging
+// Enhanced webhook endpoint with better error handling
 app.post('/api/webhook',
     express.raw({ type: 'application/json' }),
     async (req, res) => {
+        let event;
         const sig = req.headers['stripe-signature'];
-        const rawBody = req.body.toString('utf8');
-        
-        console.log('💰 Webhook Details:', {
-            timestamp: new Date().toISOString(),
-            headers: req.headers,
-            signature: sig,
-            rawBody: rawBody.substring(0, 500) // Log first 500 chars
-        });
         
         try {
-            const event = stripe.webhooks.constructEvent(
+            // Verify the webhook signature first
+            event = stripe.webhooks.constructEvent(
                 req.body,
                 sig,
                 process.env.STRIPE_WEBHOOK_SECRET
             );
+            
+            // Immediately acknowledge receipt to Stripe
+            res.json({ received: true });
 
-            console.log('✅ Webhook Event:', {
-                type: event.type,
-                id: event.id,
-                object: event.data.object,
-                metadata: event.data.object.metadata
-            });
-
+            // Process the event asynchronously
             if (event.type === 'checkout.session.completed') {
                 const session = event.data.object;
-                console.log('💳 Checkout Session:', {
-                    id: session.id,
-                    customer: session.customer,
-                    metadata: session.metadata,
-                    amount: session.amount_total
+                // Handle payment in background
+                handleSuccessfulPayment(session).catch(error => {
+                    console.error('Background payment processing failed:', error);
                 });
-                
-                await handleSuccessfulPayment(session);
             }
-
-            res.json({ 
-                received: true,
-                type: event.type,
-                id: event.id 
-            });
         } catch (err) {
             console.error('❌ Webhook Error:', {
                 error: err.message,
                 stack: err.stack
             });
-            res.status(400).send(`Webhook Error: ${err.message}`);
+            return res.status(400).send(`Webhook Error: ${err.message}`);
         }
     }
 );
@@ -162,39 +143,33 @@ app.post('/api/create-points-checkout', checkoutLimiter, async (req, res) => {
     }
 });
 
-// Process successful payment and update Firebase user points
+// Improved handleSuccessfulPayment function
 async function handleSuccessfulPayment(session) {
-    const maxRetries = 3;
+    const maxRetries = 5; // Increased from 3
     let retryCount = 0;
+    const retryDelays = [1000, 2000, 4000, 8000, 16000]; // Explicit retry delays
 
     while (retryCount < maxRetries) {
         try {
-            console.log(`💳 Processing payment (attempt ${retryCount + 1}):`, {
-                sessionId: session.id,
-                metadata: session.metadata
-            });
-
             const { userId, points } = session.metadata;
 
             if (!userId || !points) {
-                throw new Error(`Missing metadata: ${JSON.stringify(session.metadata)}`);
+                throw new Error('Invalid metadata');
             }
 
             const userRef = admin.firestore().collection('users').doc(userId);
-            const purchaseRef = userRef.collection('purchases').doc();
+            const purchaseRef = admin.firestore().collection('purchases').doc(); // Separate collection
 
             await admin.firestore().runTransaction(async (transaction) => {
-                const freshUserDoc = await transaction.get(userRef);
-                const currentPoints = freshUserDoc.data()?.points || 0;
+                const userDoc = await transaction.get(userRef);
+                
+                if (!userDoc.exists) {
+                    throw new Error('User document not found');
+                }
+
+                const currentPoints = userDoc.data()?.points || 0;
                 const pointsToAdd = parseInt(points, 10);
                 const newPoints = currentPoints + pointsToAdd;
-                
-                console.log('📊 Points update:', {
-                    userId,
-                    currentPoints,
-                    pointsToAdd,
-                    newPoints
-                });
 
                 // Update user points
                 transaction.update(userRef, { 
@@ -202,51 +177,43 @@ async function handleSuccessfulPayment(session) {
                     lastUpdated: admin.firestore.FieldValue.serverTimestamp()
                 });
 
-                // Create purchase record
+                // Create purchase record with more detailed status
                 transaction.set(purchaseRef, {
+                    userId,
                     points: pointsToAdd,
                     amount: session.amount_total,
                     timestamp: admin.firestore.FieldValue.serverTimestamp(),
-                    paymentId: session.payment_intent,
                     status: 'completed',
-                    previousPoints: currentPoints,
-                    newTotal: newPoints,
                     sessionId: session.id,
-                    customerEmail: session.customer_details?.email,
-                    paymentMethod: session.payment_method_types?.[0],
-                    currency: session.currency,
-                    amountSubtotal: session.amount_subtotal,
-                    amountTotal: session.amount_total,
-                    created: new Date(session.created * 1000).toISOString()
+                    retryCount,
+                    processingDetails: {
+                        startTime: new Date().toISOString(),
+                        attempts: retryCount + 1
+                    }
                 });
             });
 
-            console.log('✅ Transaction successful:', {
-                userId,
-                purchaseId: purchaseRef.id,
-                points
-            });
-            
             return; // Success, exit retry loop
         } catch (error) {
             retryCount++;
-            console.error(`❌ Attempt ${retryCount} failed:`, error);
+            console.error(`Attempt ${retryCount} failed:`, error);
             
             if (retryCount === maxRetries) {
-                // Log to a separate collection for failed webhooks
+                // Store failed webhook in a separate collection
                 await admin.firestore().collection('failedWebhooks').add({
                     sessionId: session.id,
                     error: error.message,
                     timestamp: admin.firestore.FieldValue.serverTimestamp(),
                     metadata: session.metadata,
-                    attempts: retryCount
+                    attempts: retryCount,
+                    lastError: error.stack
                 });
                 
-                throw error; // Rethrow after max retries
+                throw error;
             }
             
-            // Wait before retrying (exponential backoff)
-            await new Promise(resolve => setTimeout(resolve, Math.pow(2, retryCount) * 1000));
+            // Wait using explicit delay
+            await new Promise(resolve => setTimeout(resolve, retryDelays[retryCount - 1]));
         }
     }
 }
