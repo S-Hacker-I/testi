@@ -484,9 +484,17 @@
                     </div>
                 `;
 
-                const response = await fetch('/api/create-points-checkout', {
+                // Make sure we're using the correct URL based on environment
+                const baseUrl = window.location.hostname === 'localhost' 
+                    ? 'http://localhost:3000' 
+                    : 'https://testi-gilt.vercel.app';
+
+                const response = await fetch(`${baseUrl}/api/create-points-checkout`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
+                    },
                     body: JSON.stringify({
                         points,
                         userId: user.uid

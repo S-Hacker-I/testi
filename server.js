@@ -20,8 +20,9 @@ const corsOptions = {
     optionsSuccessStatus: 200
 };
 
-// Move these to the top, right after the initial requires
 app.use(cors(corsOptions));
+
+// Move these to the top, right after the initial requires
 app.use(express.json({ limit: '1mb' }));
 app.use(helmet({
     contentSecurityPolicy: false // Temporarily disable for development
@@ -252,7 +253,7 @@ app.post('/api/create-points-checkout', async (req, res) => {
     try {
         const { points, userId } = req.body;
         
-        // Validate user and points
+        // Validate inputs
         if (!userId || !points) {
             return res.status(400).json({ error: 'Missing required fields' });
         }
@@ -283,8 +284,8 @@ app.post('/api/create-points-checkout', async (req, res) => {
                 quantity: pointsNum,
             }],
             mode: 'payment',
-            success_url: `https://testi-gilt.vercel.app/dashboard?success=true&points=${pointsNum}`,
-            cancel_url: `https://testi-gilt.vercel.app/dashboard`,
+            success_url: `${process.env.NODE_ENV === 'production' ? 'https://testi-gilt.vercel.app' : 'http://localhost:3000'}/dashboard?success=true&points=${pointsNum}`,
+            cancel_url: `${process.env.NODE_ENV === 'production' ? 'https://testi-gilt.vercel.app' : 'http://localhost:3000'}/dashboard`,
             metadata: {
                 userId,
                 points: pointsNum.toString(),
