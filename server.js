@@ -19,7 +19,7 @@ admin.initializeApp({
     })
 });
 
-// Move webhook endpoint BEFORE any middleware
+// Move this BEFORE any middleware
 app.post('/api/webhook', 
     express.raw({type: 'application/json'}), 
     async (req, res) => {
@@ -32,11 +32,10 @@ app.post('/api/webhook',
                 process.env.STRIPE_WEBHOOK_SECRET
             );
 
-            console.log('Webhook received:', event.type);
+            console.log('Webhook received:', event.type, event.data.object);
 
             if (event.type === 'checkout.session.completed') {
                 const session = event.data.object;
-                console.log('Session data:', session);
                 await handleSuccessfulPayment(session);
             }
 
@@ -122,9 +121,8 @@ app.post('/api/create-points-checkout', checkoutLimiter, async (req, res) => {
             return res.status(400).json({ error: 'Missing required parameters' });
         }
 
-        const amount = points * 10; // $0.10 per point
-
-        console.log('Creating checkout session:', { points, userId, amount });
+        // Convert to cents (Stripe uses smallest currency unit)
+        const unitAmount = 10; // $0.10 in cents
 
         const session = await stripe.checkout.sessions.create({
             payment_method_types: ['card'],
@@ -135,12 +133,12 @@ app.post('/api/create-points-checkout', checkoutLimiter, async (req, res) => {
                         name: `${points} Points Package`,
                         description: `Purchase ${points} points for your account`
                     },
-                    unit_amount: amount
+                    unit_amount: unitAmount // 10 cents per point
                 },
-                quantity: 1
+                quantity: points // This multiplies the unit_amount by points
             }],
             mode: 'payment',
-            success_url: `${process.env.BASE_URL}/dashboard?success=true&points=${points}`,
+            success_url: `${process.env.BASE_URL}/dashboard?success=true`,
             cancel_url: `${process.env.BASE_URL}/dashboard?canceled=true`,
             metadata: {
                 userId: userId,
@@ -148,7 +146,6 @@ app.post('/api/create-points-checkout', checkoutLimiter, async (req, res) => {
             }
         });
 
-        console.log('Checkout session created:', session.id);
         res.json({ url: session.url });
     } catch (error) {
         console.error('Checkout error:', error);
@@ -158,6 +155,8 @@ app.post('/api/create-points-checkout', checkoutLimiter, async (req, res) => {
 
 // Optimize the payment handling function
 async function handleSuccessfulPayment(session) {
+    console.log('Processing payment session:', session);
+    
     const { userId, points } = session.metadata;
     
     if (!userId || !points) {
@@ -168,7 +167,6 @@ async function handleSuccessfulPayment(session) {
     const userRef = admin.firestore().collection('users').doc(userId);
     
     try {
-        // Use a transaction for atomic updates
         await admin.firestore().runTransaction(async (transaction) => {
             const userDoc = await transaction.get(userRef);
             
@@ -193,7 +191,7 @@ async function handleSuccessfulPayment(session) {
                 lastUpdated: admin.firestore.FieldValue.serverTimestamp()
             });
 
-            // Create purchases collection and add document
+            // Create purchases subcollection if it doesn't exist
             const purchaseRef = userRef.collection('purchases').doc();
             transaction.set(purchaseRef, {
                 points: parseInt(points),
