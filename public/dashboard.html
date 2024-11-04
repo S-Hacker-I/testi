@@ -306,17 +306,12 @@
 
         // Start points checkout
         async function startPointsCheckout() {
+            const points = parseInt(document.getElementById('pointsToBuy').value);
             const buyButton = document.getElementById('buyPointsBtn');
-            const pointsInput = document.getElementById('pointsToBuy');
-            
-            if (!buyButton || !pointsInput) return;
             
             try {
-                const points = parseInt(pointsInput.value);
-                if (isNaN(points) || points < 10 || points > 5000) {
-                    throw new Error('Please enter between 10 and 5000 points');
-                }
-
+                console.log('Starting checkout:', { points, userId: currentUser.uid });
+                
                 buyButton.disabled = true;
                 buyButton.innerHTML = '<div class="loading-spinner mr-2"></div>Processing...';
 
@@ -330,12 +325,18 @@
                 });
 
                 const data = await response.json();
-                if (!response.ok) throw new Error(data.error || 'Failed to create checkout');
+                
+                if (!response.ok) {
+                    console.error('Checkout error:', data);
+                    throw new Error(data.error || 'Failed to create checkout');
+                }
 
+                console.log('Redirecting to checkout:', data.url);
                 hideUpgradeModal();
                 window.location.href = data.url;
 
             } catch (error) {
+                console.error('Checkout error:', error);
                 showError(error.message || 'Failed to start checkout');
                 buyButton.disabled = false;
                 buyButton.innerHTML = 'Purchase Points';

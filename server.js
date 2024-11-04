@@ -19,8 +19,36 @@ admin.initializeApp({
     })
 });
 
-// Middleware
-app.use(express.static('public'));
+// Move webhook endpoint BEFORE any middleware
+app.post('/api/webhook', 
+    express.raw({type: 'application/json'}), 
+    async (req, res) => {
+        const sig = req.headers['stripe-signature'];
+        
+        try {
+            const event = stripe.webhooks.constructEvent(
+                req.body,
+                sig,
+                process.env.STRIPE_WEBHOOK_SECRET
+            );
+
+            console.log('Webhook received:', event.type);
+
+            if (event.type === 'checkout.session.completed') {
+                const session = event.data.object;
+                console.log('Session data:', session);
+                await handleSuccessfulPayment(session);
+            }
+
+            res.json({ received: true });
+        } catch (err) {
+            console.error('Webhook error:', err);
+            return res.status(400).send(`Webhook Error: ${err.message}`);
+        }
+    }
+);
+
+// Then add other middleware
 app.use(express.json());
 app.use(cors());
 app.use(helmet({
@@ -96,6 +124,8 @@ app.post('/api/create-points-checkout', checkoutLimiter, async (req, res) => {
 
         const amount = points * 10; // $0.10 per point
 
+        console.log('Creating checkout session:', { points, userId, amount });
+
         const session = await stripe.checkout.sessions.create({
             payment_method_types: ['card'],
             line_items: [{
@@ -113,11 +143,12 @@ app.post('/api/create-points-checkout', checkoutLimiter, async (req, res) => {
             success_url: `${process.env.BASE_URL}/dashboard?success=true&points=${points}`,
             cancel_url: `${process.env.BASE_URL}/dashboard?canceled=true`,
             metadata: {
-                userId,
+                userId: userId,
                 points: points.toString()
             }
         });
 
+        console.log('Checkout session created:', session.id);
         res.json({ url: session.url });
     } catch (error) {
         console.error('Checkout error:', error);
@@ -125,42 +156,12 @@ app.post('/api/create-points-checkout', checkoutLimiter, async (req, res) => {
     }
 });
 
-// Move webhook endpoint BEFORE express.json() middleware
-app.post('/api/webhook', 
-    express.raw({type: 'application/json'}), 
-    async (req, res) => {
-        const sig = req.headers['stripe-signature'];
-        
-        try {
-            const event = stripe.webhooks.constructEvent(
-                req.body,
-                sig,
-                process.env.STRIPE_WEBHOOK_SECRET
-            );
-
-            console.log('Webhook received:', event.type);
-
-            if (event.type === 'checkout.session.completed') {
-                const session = event.data.object;
-                console.log('Processing payment for session:', session.id);
-                await handleSuccessfulPayment(session);
-                console.log(`Payment successful for user ${session.metadata.userId}`);
-            }
-
-            res.json({ received: true });
-        } catch (err) {
-            console.error('Webhook error:', err);
-            console.error('Request body:', req.body);
-            return res.status(400).send(`Webhook Error: ${err.message}`);
-        }
-    }
-);
-
 // Optimize the payment handling function
 async function handleSuccessfulPayment(session) {
     const { userId, points } = session.metadata;
     
     if (!userId || !points) {
+        console.error('Missing metadata:', session.metadata);
         throw new Error('Missing metadata');
     }
 
@@ -172,21 +173,29 @@ async function handleSuccessfulPayment(session) {
             const userDoc = await transaction.get(userRef);
             
             if (!userDoc.exists) {
+                console.error('User not found:', userId);
                 throw new Error('User not found');
             }
 
             const currentPoints = userDoc.data().points || 0;
             const newPoints = currentPoints + parseInt(points);
+            
+            console.log('Points update:', {
+                userId,
+                currentPoints,
+                addedPoints: parseInt(points),
+                newPoints
+            });
 
             // Update user points
-            await transaction.update(userRef, { 
+            transaction.update(userRef, { 
                 points: newPoints,
                 lastUpdated: admin.firestore.FieldValue.serverTimestamp()
             });
 
             // Create purchases collection and add document
             const purchaseRef = userRef.collection('purchases').doc();
-            await transaction.set(purchaseRef, {
+            transaction.set(purchaseRef, {
                 points: parseInt(points),
                 amount: session.amount_total,
                 timestamp: admin.firestore.FieldValue.serverTimestamp(),
