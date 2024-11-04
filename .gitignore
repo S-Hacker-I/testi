@@ -1,2 +1,12 @@
+# Environment variables
 .env
+.env.*
+
+# Service account files
+serviceAccountKey.json
+serviceAccount.json
+
+# Other sensitive files
+**/firebase-admin-*.json
+
 node_modules/ 
