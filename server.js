@@ -140,6 +140,11 @@ app.get('/api/checkout-session/:sessionId', async (req, res) => {
     }
 });
 
+// Catch-all route for static files
+app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', req.path));
+});
+
 // Add this after your routes
 app.use((err, req, res, next) => {
     console.error('Server error:', err);

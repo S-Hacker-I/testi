@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node server.js",
     "build": "echo 'No build step needed'",
-    "vercel-build": "echo 'Build step completed'"
+    "vercel-build": "echo 'Build step completed'",
+    "dev": "nodemon server.js"
   },
   "dependencies": {
     "@huggingface/inference": "^2.8.1",
