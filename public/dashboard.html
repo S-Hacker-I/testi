@@ -457,13 +457,13 @@
             const pointsInput = document.getElementById('pointsToBuy');
             
             if (!buyButton || !pointsInput) {
-                console.error('Required elements not found');
                 showError('Something went wrong. Please refresh the page.');
                 return;
             }
 
             try {
-                if (!firebase.auth().currentUser) {
+                const user = firebase.auth().currentUser;
+                if (!user) {
                     showError('Please log in to purchase points');
                     return;
                 }
@@ -475,8 +475,8 @@
                 }
 
                 // Show loading state
-                const originalContent = buyButton.innerHTML;
                 buyButton.disabled = true;
+                const originalContent = buyButton.innerHTML;
                 buyButton.innerHTML = `
                     <div class="flex items-center justify-center">
                         <div class="loading-spinner mr-2"></div>
@@ -486,22 +486,20 @@
 
                 const response = await fetch('/api/create-points-checkout', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         points,
-                        userId: firebase.auth().currentUser.uid
+                        userId: user.uid
                     })
                 });
 
                 const data = await response.json();
+                if (!response.ok) throw new Error(data.error || 'Failed to create checkout session');
 
-                if (!response.ok) {
-                    throw new Error(data.error || 'Failed to create checkout session');
-                }
-
-                // Redirect to Stripe
+                // Hide modal before redirect
+                hideUpgradeModal();
+                
+                // Redirect to Stripe Checkout
                 window.location.href = data.url;
 
             } catch (error) {
@@ -509,17 +507,21 @@
                 showError(error.message || 'Failed to start checkout');
                 
                 // Reset button state
-                buyButton.disabled = false;
-                buyButton.innerHTML = originalContent;
+                if (buyButton) {
+                    buyButton.disabled = false;
+                    buyButton.innerHTML = originalContent;
+                }
             }
         }
 
-        // Add success message handler
+        // Add success handler
         window.addEventListener('load', () => {
             const urlParams = new URLSearchParams(window.location.search);
             if (urlParams.get('success') === 'true') {
-                const points = urlParams.get('points');
-                showSuccess(`Successfully purchased ${points || ''} points!`);
+                showSuccess('Payment successful! Your points will be added shortly.');
+                
+                // Refresh user data
+                initializeUserData();
                 
                 // Clear URL parameters
                 window.history.replaceState({}, document.title, '/dashboard');
@@ -719,19 +721,27 @@
             const user = firebase.auth().currentUser;
             if (!user) return;
 
-            const unsubscribe = firebase.firestore().collection('users').doc(user.uid)
+            // Listen for points updates
+            const unsubscribe = firebase.firestore()
+                .collection('users')
+                .doc(user.uid)
                 .onSnapshot((doc) => {
                     if (doc.exists) {
-                        const points = doc.data().points || 3;
-                        document.querySelector('#pointsDisplay .font-semibold').textContent = points;
+                        const userData = doc.data();
+                        userPoints = userData.points || 0;
+                        
+                        // Update points display
+                        const pointsDisplay = document.querySelector('#pointsDisplay .font-semibold');
+                        if (pointsDisplay) {
+                            pointsDisplay.textContent = userPoints;
+                        }
                     }
                 }, (error) => {
                     console.error('Points listener error:', error);
-                    showError('Failed to update points');
                 });
 
-            // Store unsubscribe function for cleanup
-            window.addEventListener('beforeunload', unsubscribe);
+            // Cleanup listener when page unloads
+            window.addEventListener('unload', () => unsubscribe());
         }
 
         // Call these functions after Firebase initialization

@@ -41,14 +41,16 @@ const limiter = rateLimit({
 // Special handling for Stripe webhook - must be before other middleware
 app.post('/webhook', express.raw({type: 'application/json'}), async (request, response) => {
     const sig = request.headers['stripe-signature'];
-    
+    let event;
+
     try {
-        const event = stripe.webhooks.constructEvent(
+        event = stripe.webhooks.constructEvent(
             request.body,
             sig,
             process.env.STRIPE_WEBHOOK_SECRET
         );
 
+        // Handle successful checkout
         if (event.type === 'checkout.session.completed') {
             const session = event.data.object;
             
@@ -56,8 +58,10 @@ app.post('/webhook', express.raw({type: 'application/json'}), async (request, re
                 const { userId, points, type } = session.metadata;
                 
                 if (type === 'points_purchase' && userId && points) {
+                    // Get a reference to the user's document
                     const userRef = admin.firestore().collection('users').doc(userId);
                     
+                    // Use a transaction to ensure data consistency
                     await admin.firestore().runTransaction(async (transaction) => {
                         const userDoc = await transaction.get(userRef);
                         
@@ -65,21 +69,28 @@ app.post('/webhook', express.raw({type: 'application/json'}), async (request, re
                             throw new Error('User not found');
                         }
 
+                        // Calculate new points total
                         const currentPoints = userDoc.data().points || 0;
                         const newPoints = currentPoints + parseInt(points);
 
-                        // Update points
-                        transaction.update(userRef, { points: newPoints });
+                        // Update user points
+                        transaction.update(userRef, { 
+                            points: newPoints,
+                            lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+                        });
 
-                        // Record purchase
+                        // Record the purchase
                         const purchaseRef = userRef.collection('purchases').doc();
                         transaction.set(purchaseRef, {
                             points: parseInt(points),
                             amount: session.amount_total,
                             timestamp: admin.firestore.FieldValue.serverTimestamp(),
-                            paymentId: session.payment_intent
+                            paymentId: session.payment_intent,
+                            status: 'completed'
                         });
                     });
+
+                    console.log(`Successfully updated points for user ${userId}`);
                 }
             } catch (error) {
                 console.error('Webhook processing error:', error);
