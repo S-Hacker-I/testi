@@ -45,7 +45,65 @@ app.get('/dashboard', (req, res) => {
 
 // API endpoints
 app.post('/api/create-checkout-session', async (req, res) => {
-    // ... existing code ...
+    try {
+        const { plan, userId } = req.body;
+        
+        // Validate user exists
+        const userDoc = await admin.firestore().collection('users').doc(userId).get();
+        if (!userDoc.exists) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        // Define prices for different plans
+        const prices = {
+            starter: {
+                amount: 1500, // $15.00
+                points: 25
+            },
+            pro: {
+                amount: 2500, // $25.00
+                points: 50
+            },
+            premium: {
+                amount: 3500, // $35.00
+                points: 100
+            }
+        };
+
+        const planDetails = prices[plan];
+        if (!planDetails) {
+            return res.status(400).json({ error: 'Invalid plan selected' });
+        }
+
+        const session = await stripe.checkout.sessions.create({
+            payment_method_types: ['card'],
+            line_items: [{
+                price_data: {
+                    currency: 'usd',
+                    product_data: {
+                        name: `TikSave ${plan.charAt(0).toUpperCase() + plan.slice(1)} Plan`,
+                        description: `${planDetails.points} AI Generations`
+                    },
+                    unit_amount: planDetails.amount,
+                },
+                quantity: 1,
+            }],
+            mode: 'payment',
+            success_url: `${process.env.NODE_ENV === 'production' ? 'https://testi-gilt.vercel.app' : 'http://localhost:3000'}/dashboard?success=true`,
+            cancel_url: `${process.env.NODE_ENV === 'production' ? 'https://testi-gilt.vercel.app' : 'http://localhost:3000'}/dashboard`,
+            metadata: {
+                userId,
+                points: planDetails.points,
+                plan,
+                type: 'plan_purchase'
+            }
+        });
+
+        res.json({ url: session.url });
+    } catch (error) {
+        console.error('Checkout error:', error);
+        res.status(500).json({ error: 'Failed to create checkout session' });
+    }
 });
 
 app.post('/api/generate-caption', async (req, res) => {
@@ -177,26 +235,37 @@ app.post('/webhook', express.raw({type: 'application/json'}), async (request, re
     try {
         if (event.type === 'checkout.session.completed') {
             const session = event.data.object;
-            
-            if (session.metadata.type === 'points_purchase') {
-                const { userId, points } = session.metadata;
-                
-                // Update user's points in Firestore
-                const userRef = admin.firestore().collection('users').doc(userId);
-                await admin.firestore().runTransaction(async (transaction) => {
-                    const userDoc = await transaction.get(userRef);
-                    if (!userDoc.exists) {
-                        throw new Error('User not found');
-                    }
-                    
-                    const currentPoints = userDoc.data().points || 3;
-                    transaction.update(userRef, {
-                        points: currentPoints + parseInt(points),
-                        lastUpdated: admin.firestore.FieldValue.serverTimestamp()
-                    });
+            const { userId, points, type } = session.metadata;
+
+            // Update user's points in Firestore
+            const userRef = admin.firestore().collection('users').doc(userId);
+            await admin.firestore().runTransaction(async (transaction) => {
+                const userDoc = await transaction.get(userRef);
+                if (!userDoc.exists) {
+                    throw new Error('User not found');
+                }
+
+                const currentPoints = userDoc.data().points || 0;
+                const newPoints = currentPoints + parseInt(points);
+
+                transaction.update(userRef, {
+                    points: newPoints,
+                    lastPurchase: admin.firestore.FieldValue.serverTimestamp(),
+                    lastPurchaseType: type,
+                    lastPurchaseAmount: session.amount_total
                 });
-            }
+            });
+
+            // Add purchase to user's history
+            await userRef.collection('purchases').add({
+                amount: session.amount_total,
+                points: parseInt(points),
+                type: type,
+                timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                paymentId: session.payment_intent
+            });
         }
+
         response.json({received: true});
     } catch (error) {
         console.error('Webhook processing failed:', error);

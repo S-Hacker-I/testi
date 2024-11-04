@@ -542,6 +542,95 @@
                 window.location.href = '/auth';
             }
         });
+
+        // Add this function to handle plan selection
+        async function handlePlanSelection(plan) {
+            try {
+                const response = await fetch('/api/create-checkout-session', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        plan,
+                        userId: firebase.auth().currentUser.uid
+                    })
+                });
+
+                if (!response.ok) throw new Error('Failed to create checkout session');
+                const data = await response.json();
+                
+                // Redirect to Stripe Checkout
+                window.location.href = data.url;
+            } catch (error) {
+                console.error('Plan selection error:', error);
+                showError('Failed to process plan selection');
+            }
+        }
+
+        // Add success message handler
+        window.addEventListener('load', () => {
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.get('success') === 'true') {
+                showSuccess('Payment successful! Your points have been added to your account.');
+            }
+        });
+
+        // Add this function to load purchase history
+        async function loadPurchaseHistory() {
+            const user = firebase.auth().currentUser;
+            if (!user) return;
+
+            const purchasesRef = firebase.firestore()
+                .collection('users')
+                .doc(user.uid)
+                .collection('purchases')
+                .orderBy('timestamp', 'desc')
+                .limit(5);
+
+            const purchaseHistory = document.getElementById('purchaseHistory');
+            
+            purchasesRef.onSnapshot((snapshot) => {
+                purchaseHistory.innerHTML = '';
+                
+                if (snapshot.empty) {
+                    purchaseHistory.innerHTML = '<p class="text-gray-500">No purchase history available</p>';
+                    return;
+                }
+
+                snapshot.forEach((doc) => {
+                    const purchase = doc.data();
+                    const date = purchase.timestamp.toDate().toLocaleDateString();
+                    const amount = (purchase.amount / 100).toFixed(2);
+                    
+                    purchaseHistory.innerHTML += `
+                        <div class="bg-white p-4 rounded-lg shadow-sm">
+                            <div class="flex justify-between items-center">
+                                <div>
+                                    <p class="font-medium">${purchase.points} Points</p>
+                                    <p class="text-sm text-gray-500">${date}</p>
+                                </div>
+                                <p class="text-green-600 font-medium">$${amount}</p>
+                            </div>
+                        </div>
+                    `;
+                });
+            }, (error) => {
+                console.error('Purchase history error:', error);
+                showError('Failed to load purchase history');
+            });
+        }
+
+        // Call this function after Firebase initialization
+        firebase.auth().onAuthStateChanged((user) => {
+            if (user) {
+                initializeUserData();
+                setupPointsListener();
+                loadPurchaseHistory();
+            } else {
+                window.location.href = '/auth';
+            }
+        });
     </script>
 </body>
 </html> 
