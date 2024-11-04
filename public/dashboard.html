@@ -7,53 +7,12 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="icon" type="image/png" href="https://img.icons8.com/fluency/48/tiktok.png">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <!-- Firebase SDK -->
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
     <script src="https://js.stripe.com/v3/"></script>
     <style>
-        body {
-            font-family: 'Inter', sans-serif;
-        }
-    </style>
-    <script>
-        const stripe = Stripe('pk_test_51Q29viG4174RoWzOFy40ibq4i4afBFB8qbuOwlCIcnVFt8MvbrGFt24Q1cS5Q68EC3etAbbtTQYYCcSXydQbCAWb00QzOqnnGG');
-    </script>
-    <script>
-        // Firebase configuration
-        const firebaseConfig = {
-            apiKey: "AIzaSyCmToewamZs5HVBMpWWnAnlafjolZdWJK8",
-            authDomain: "test-d4c13.firebaseapp.com",
-            projectId: "test-d4c13",
-            storageBucket: "test-d4c13.appspot.com",
-            messagingSenderId: "771743673319",
-            appId: "1:771743673319:web:61e563fa2f5f98a6beeb42",
-            measurementId: "G-ZQ2TB34NT9"
-        };
-
-        let currentUser = null;
-        let userPoints = 0;
-
-        // Initialize Firebase with persistence
-        async function initializeFirebase() {
-            try {
-                if (!firebase.apps.length) {
-                    firebase.initializeApp(firebaseConfig);
-                    await firebase.firestore().enablePersistence()
-                        .catch((err) => {
-                            console.warn('Persistence error:', err.code);
-                        });
-                }
-                return true;
-            } catch (error) {
-                console.error('Firebase initialization error:', error);
-                showError('Failed to initialize Firebase');
-                return false;
-            }
-        }
-    </script>
-    <style>
+        body { font-family: 'Inter', sans-serif; }
         .loading-spinner {
             border: 2px solid #f3f3f3;
             border-radius: 50%;
@@ -81,10 +40,10 @@
                     <span id="pointsDisplay" class="text-gray-600">
                         Points: <span class="font-semibold">0</span>
                     </span>
-                    <button onclick="showUpgradeModal()" class="text-purple-600 hover:text-purple-700 font-medium">
-                        Upgrade Plan
+                    <button data-action="buy-points" class="text-purple-600 hover:text-purple-700 font-medium">
+                        Buy Points
                     </button>
-                    <button onclick="handleSignOut()" class="text-gray-600 hover:text-gray-700 font-medium">
+                    <button data-action="sign-out" class="text-gray-600 hover:text-gray-700 font-medium">
                         Sign Out
                     </button>
                 </div>
@@ -92,82 +51,29 @@
         </div>
     </nav>
 
-    <!-- Add this right after the nav section -->
+    <!-- Notifications -->
     <div id="notifications" class="fixed top-20 right-4 z-50 space-y-4"></div>
 
-    <!-- Add this right after the nav section -->
-    <div id="connectionStatus" class="fixed top-16 right-4 z-50 p-2 rounded-lg text-sm hidden">
-    </div>
+    <!-- Connection Status -->
+    <div id="connectionStatus" class="fixed top-16 right-4 z-50 p-2 rounded-lg text-sm hidden"></div>
 
     <!-- Main Content -->
     <div class="max-w-4xl mx-auto px-4 pt-24 pb-12">
-        <!-- Generation Form -->
+        <!-- Points Purchase History -->
         <div class="bg-white p-8 rounded-lg shadow-sm mb-8">
-            <h2 class="text-2xl font-bold text-gray-900 mb-6">Generate Content</h2>
-            <form id="generateForm" class="space-y-6">
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-2">
-                        Video Description
-                    </label>
-                    <textarea id="description" rows="4" required
-                        placeholder="Describe your video content..."
-                        class="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"></textarea>
-                </div>
-                <div class="flex space-x-4">
-                    <button type="button" onclick="generateCaption()" 
-                        class="flex-1 bg-purple-600 text-white px-4 py-3 rounded-lg hover:bg-purple-700 transition-colors font-medium relative">
-                        <span class="generation-text">Generate Caption</span>
-                        <svg class="animate-spin h-5 w-5 mx-auto hidden absolute inset-0 m-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                        </svg>
-                    </button>
-                    <button type="button" onclick="generateHashtags()" 
-                        class="flex-1 bg-purple-600 text-white px-4 py-3 rounded-lg hover:bg-purple-700 transition-colors font-medium relative">
-                        <span class="generation-text">Generate Hashtags</span>
-                        <svg class="animate-spin h-5 w-5 mx-auto hidden absolute inset-0 m-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                        </svg>
-                    </button>
-                </div>
-            </form>
-        </div>
-
-        <!-- Results Section -->
-        <div class="space-y-6">
-            <!-- Caption Result -->
-            <div id="captionResult" class="hidden bg-white p-6 rounded-lg shadow-sm">
-                <div class="flex justify-between items-start mb-4">
-                    <h3 class="text-lg font-semibold text-gray-900">Generated Caption</h3>
-                    <button onclick="copyToClipboard('captionText')" 
-                        class="text-purple-600 hover:text-purple-700">
-                        <img src="https://img.icons8.com/fluency/48/copy.png" alt="Copy" class="w-5 h-5">
-                    </button>
-                </div>
-                <p id="captionText" class="text-gray-600"></p>
-            </div>
-
-            <!-- Hashtags Result -->
-            <div id="hashtagsResult" class="hidden bg-white p-6 rounded-lg shadow-sm">
-                <div class="flex justify-between items-start mb-4">
-                    <h3 class="text-lg font-semibold text-gray-900">Generated Hashtags</h3>
-                    <button onclick="copyToClipboard('hashtagsText')" 
-                        class="text-purple-600 hover:text-purple-700">
-                        <img src="https://img.icons8.com/fluency/48/copy.png" alt="Copy" class="w-5 h-5">
-                    </button>
-                </div>
-                <p id="hashtagsText" class="text-gray-600"></p>
+            <h2 class="text-2xl font-bold text-gray-900 mb-6">Purchase History</h2>
+            <div id="purchaseHistory" class="space-y-4">
+                <!-- Purchase history items will be inserted here -->
             </div>
         </div>
     </div>
 
-    <!-- Upgrade Modal -->
+    <!-- Points Purchase Modal -->
     <div id="upgradeModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
         <div class="bg-white p-8 rounded-lg max-w-md w-full mx-4">
             <div class="flex justify-between items-center mb-6">
                 <h3 class="text-xl font-bold text-gray-900">Buy Points</h3>
-                <button onclick="hideUpgradeModal()" class="text-gray-500 hover:text-gray-700">
+                <button data-action="close-modal" class="text-gray-500 hover:text-gray-700">
                     <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
                     </svg>
@@ -179,8 +85,8 @@
                 <label class="block text-sm font-medium text-gray-700 mb-2">
                     Number of Points (Min 10, Max 5,000)
                 </label>
-                <div class="flex items-center space-x-4 mb-6">
-                    <button onclick="adjustPoints(-10)" 
+                <div class="flex items-center space-x-4 mb-4">
+                    <button data-action="decrease-points" 
                             class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300 transition-colors">
                         -10
                     </button>
@@ -189,324 +95,177 @@
                            value="100" 
                            min="10" 
                            max="5000" 
-                           class="w-24 px-3 py-2 border rounded text-center"
-                           onchange="validatePoints(this)"
-                           oninput="validatePoints(this)">
-                    <button onclick="adjustPoints(10)" 
+                           class="w-24 px-3 py-2 border rounded text-center">
+                    <button data-action="increase-points" 
                             class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300 transition-colors">
                         +10
                     </button>
-                    <span class="text-gray-600">$<span id="pointsPrice">10.00</span></span>
                 </div>
-            </div>
-
-            <!-- Price Display -->
-            <div class="bg-purple-50 p-4 rounded-lg mb-6">
-                <div class="flex justify-between items-center">
-                    <span class="text-gray-700">Price:</span>
-                    <span class="text-xl font-bold text-purple-600">$<span id="pointsPrice">10</span></span>
+                <div class="text-sm text-gray-600">
+                    Price per point: $0.10
                 </div>
-                <p class="text-sm text-gray-600 mt-2">
-                    Rate: $0.10 per point
-                </p>
+                <div class="text-sm font-medium text-gray-900 mt-2">
+                    Total Price: $<span id="pointsPrice">10.00</span>
+                </div>
             </div>
 
             <!-- Purchase Button -->
-            <button id="buyPointsBtn" 
-                    onclick="startPointsCheckout()" 
-                    class="w-full bg-purple-600 text-white px-4 py-3 rounded-lg hover:bg-purple-700 transition-colors font-medium mb-4">
+            <button id="buyPointsBtn"
+                    class="w-full bg-purple-600 text-white px-4 py-3 rounded-lg hover:bg-purple-700 transition-colors font-medium">
                 Purchase Points
             </button>
+
+            <!-- Purchase History -->
+            <div class="mt-8">
+                <h4 class="text-lg font-semibold text-gray-900 mb-4">Recent Purchases</h4>
+                <div id="modalPurchaseHistory" class="space-y-4">
+                    <!-- Purchase history items will be inserted here -->
+                </div>
+            </div>
         </div>
     </div>
 
     <script>
+        // Firebase configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyCmToewamZs5HVBMpWWnAnlafjolZdWJK8",
+            authDomain: "test-d4c13.firebaseapp.com",
+            projectId: "test-d4c13",
+            storageBucket: "test-d4c13.appspot.com",
+            messagingSenderId: "771743673319",
+            appId: "1:771743673319:web:61e563fa2f5f98a6beeb42"
+        };
+
+        // Global variables
         let currentUser = null;
         let userPoints = 0;
+        let unsubscribePoints = null;
+        const stripe = Stripe('pk_test_51Q29viG4174RoWzOFy40ibq4i4afBFB8qbuOwlCIcnVFt8MvbrGFt24Q1cS5Q68EC3etAbbtTQYYCcSXydQbCAWb00QzOqnnGG');
 
-        // Initialize Firebase
+        // Initialize Firebase with better error handling
         async function initializeFirebase() {
             try {
-                // Initialize Firebase if not already initialized
                 if (!firebase.apps.length) {
                     firebase.initializeApp(firebaseConfig);
-                }
-
-                // Wait for auth state to be ready
-                await new Promise((resolve) => {
-                    firebase.auth().onAuthStateChanged((user) => {
-                        currentUser = user;
-                        if (user) {
-                            resolve();
-                        } else {
-                            window.location.href = '/auth';
+                    await firebase.firestore().enablePersistence({
+                        synchronizeTabs: true
+                    }).catch(err => {
+                        if (err.code === 'failed-precondition') {
+                            console.warn('Multiple tabs open, persistence can only be enabled in one tab at a time.');
+                        } else if (err.code === 'unimplemented') {
+                            console.warn('Browser doesn\'t support persistence');
                         }
                     });
-                });
-
-                // Initialize other features after auth is ready
-                await initializeUserData();
-                setupPointsListener();
-                loadPurchaseHistory();
+                }
+                return true;
             } catch (error) {
                 console.error('Firebase initialization error:', error);
-                showError('Failed to initialize application');
+                showError('Failed to initialize app');
+                return false;
             }
         }
 
-        // Load user data
-        async function loadUserData() {
+        // Initialize user data
+        async function initializeUserData() {
             try {
-                const doc = await firebase.firestore()
+                const userRef = firebase.firestore()
                     .collection('users')
-                    .doc(currentUser.uid)
-                    .get();
+                    .doc(currentUser.uid);
+                
+                const doc = await userRef.get();
                 
                 if (doc.exists) {
-                    const userData = doc.data();
-                    userPoints = userData.points;
+                    userPoints = doc.data().points || 0;
+                    updatePointsDisplay();
+                    
+                    // Clean up previous listener if exists
+                    if (unsubscribePoints) {
+                        unsubscribePoints();
+                    }
+                    
+                    // Set up new listener
+                    unsubscribePoints = userRef.onSnapshot((doc) => {
+                        if (doc.exists) {
+                            userPoints = doc.data().points || 0;
+                            updatePointsDisplay();
+                        }
+                    }, (error) => {
+                        console.error('Points listener error:', error);
+                        showError('Failed to listen for points updates');
+                    });
+                } else {
+                    // Create user document if it doesn't exist
+                    await userRef.set({
+                        points: 0,
+                        created: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                    userPoints = 0;
                     updatePointsDisplay();
                 }
             } catch (error) {
-                showError('Failed to load user data');
                 console.error('Load user data error:', error);
+                showError('Failed to load user data');
             }
         }
 
         // Update points display
         function updatePointsDisplay() {
-            try {
-                const pointsElement = document.querySelector('#pointsDisplay .font-semibold');
-                if (pointsElement) {
-                    pointsElement.textContent = userPoints || '0';
-                }
-            } catch (error) {
-                console.error('Failed to update points display:', error);
+            const pointsElement = document.querySelector('#pointsDisplay .font-semibold');
+            if (pointsElement) {
+                pointsElement.textContent = userPoints || '0';
             }
         }
 
-        // Generate caption
-        async function generateCaption() {
-            if (userPoints < 1) {
-                showUpgradeModal();
-                return;
-            }
-
-            const description = document.getElementById('description').value;
-            if (!description) {
-                showError('Please enter a video description');
-                return;
-            }
-
-            setLoading(true);
-            try {
-                const response = await fetch('/api/generate-caption', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ description })
-                });
-
-                if (!response.ok) throw new Error('Failed to generate caption');
-                const data = await response.json();
-
-                document.getElementById('captionText').textContent = data.caption;
-                document.getElementById('captionResult').classList.remove('hidden');
-
-                // Update points
-                userPoints--;
-                updatePointsDisplay();
-                await updateUserPoints();
-            } catch (error) {
-                showError('Failed to generate caption');
-                console.error('Generate caption error:', error);
-            } finally {
-                setLoading(false);
-            }
-        }
-
-        // Generate hashtags
-        async function generateHashtags() {
-            if (userPoints < 1) {
-                showUpgradeModal();
-                return;
-            }
-
-            const description = document.getElementById('description').value;
-            if (!description) {
-                showError('Please enter a video description');
-                return;
-            }
-
-            setLoading(true);
-            try {
-                const response = await fetch('/api/generate-hashtags', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ description })
-                });
-
-                if (!response.ok) throw new Error('Failed to generate hashtags');
-                const data = await response.json();
-
-                document.getElementById('hashtagsText').textContent = data.hashtags;
-                document.getElementById('hashtagsResult').classList.remove('hidden');
-
-                // Update points
-                userPoints--;
-                updatePointsDisplay();
-                await updateUserPoints();
-            } catch (error) {
-                showError('Failed to generate hashtags');
-                console.error('Generate hashtags error:', error);
-            } finally {
-                setLoading(false);
-            }
-        }
-
-        // Update user points in Firestore
-        async function updateUserPoints() {
-            try {
-                if (!firebase.auth().currentUser) return;
-                
-                await firebase.firestore()
-                    .collection('users')
-                    .doc(firebase.auth().currentUser.uid)
-                    .update({
-                        points: userPoints
-                    });
-            } catch (error) {
-                console.error('Update points error:', error);
-                showError('Failed to update points');
-            }
-        }
-
-        // Copy to clipboard
-        async function copyToClipboard(elementId) {
-            const text = document.getElementById(elementId).textContent;
-            try {
-                await navigator.clipboard.writeText(text);
-                showSuccess('Copied to clipboard!');
-            } catch (error) {
-                showError('Failed to copy to clipboard');
-            }
-        }
-
-        // Show/hide upgrade modal
+        // Points purchase functions
         function showUpgradeModal() {
             document.getElementById('upgradeModal').classList.remove('hidden');
+            updateModalPurchaseHistory();
+            updatePointsPrice(); // Ensure initial price is displayed correctly
         }
 
         function hideUpgradeModal() {
             document.getElementById('upgradeModal').classList.add('hidden');
         }
 
-        // Start Stripe checkout
-        async function startCheckout(plan) {
-            try {
-                const response = await fetch('/api/create-checkout-session', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ 
-                        plan,
-                        userId: currentUser.uid
-                    })
-                });
-
-                if (!response.ok) throw new Error('Failed to create checkout session');
-                const data = await response.json();
-                window.location.href = data.url;
-            } catch (error) {
-                showError('Failed to start checkout');
-                console.error('Checkout error:', error);
-            }
-        }
-
-        // Sign out
-        async function handleSignOut() {
-            try {
-                await firebase.auth().signOut();
-                window.location.href = '/auth';
-            } catch (error) {
-                showError('Failed to sign out');
-                console.error('Sign out error:', error);
-            }
-        }
-
-        // Loading state
-        function setLoading(isLoading) {
-            const buttons = document.querySelectorAll('button');
-            buttons.forEach(button => {
-                button.disabled = isLoading;
-            });
-        }
-
-        // Error handling
-        function showError(message) {
-            showNotification(message, 'error');
-            
-            // If it's a connection error, show offline indicator
-            if (message.includes('offline') || message.includes('connection')) {
-                const statusDiv = document.getElementById('connectionStatus');
-                if (statusDiv) {
-                    statusDiv.textContent = '🔴 Offline';
-                    statusDiv.className = 'fixed top-16 right-4 z-50 p-2 rounded-lg text-sm bg-red-50 text-red-800';
-                    statusDiv.classList.remove('hidden');
-                }
-            }
-        }
-
-        function showSuccess(message) {
-            showNotification(message, 'success');
-        }
-
         function adjustPoints(amount) {
             const input = document.getElementById('pointsToBuy');
-            if (!input) return;
-            let currentValue = parseInt(input.value) || 10;
-            let newValue = currentValue + amount;
-            newValue = Math.max(10, Math.min(5000, newValue));
-            input.value = newValue;
+            let value = parseInt(input.value) + amount;
+            value = Math.max(10, Math.min(5000, value));
+            input.value = value;
+            updatePointsPrice();
+        }
+
+        function validatePoints(input) {
+            let value = parseInt(input.value);
+            if (isNaN(value) || !input.value) {
+                value = 10;
+            }
+            value = Math.max(10, Math.min(5000, value));
+            input.value = value;
             updatePointsPrice();
         }
 
         function updatePointsPrice() {
-            const points = parseInt(document.getElementById('pointsToBuy')?.value || 0);
-            const priceElement = document.getElementById('pointsPrice');
-            if (priceElement) {
-                const price = (points * 0.10).toFixed(2);
-                priceElement.textContent = price;
-            }
+            const points = parseInt(document.getElementById('pointsToBuy').value);
+            const price = (points * 0.10).toFixed(2); // $0.10 per point
+            document.getElementById('pointsPrice').textContent = price;
         }
 
+        // Start points checkout
         async function startPointsCheckout() {
             const buyButton = document.getElementById('buyPointsBtn');
             const pointsInput = document.getElementById('pointsToBuy');
             
-            if (!buyButton || !pointsInput) {
-                showError('Something went wrong. Please refresh the page.');
-                return;
-            }
-
+            if (!buyButton || !pointsInput) return;
+            
             try {
-                if (!currentUser) {
-                    showError('Please log in to purchase points');
-                    return;
-                }
-
                 const points = parseInt(pointsInput.value);
                 if (isNaN(points) || points < 10 || points > 5000) {
-                    showError('Please enter between 10 and 5000 points');
-                    return;
+                    throw new Error('Please enter between 10 and 5000 points');
                 }
 
                 buyButton.disabled = true;
-                buyButton.innerHTML = `<div class="loading-spinner mr-2"></div>Processing...`;
+                buyButton.innerHTML = '<div class="loading-spinner mr-2"></div>Processing...';
 
                 const response = await fetch('/api/create-points-checkout', {
                     method: 'POST',
@@ -518,125 +277,32 @@
                 });
 
                 const data = await response.json();
-                if (!response.ok) throw new Error(data.error || 'Failed to create checkout session');
+                if (!response.ok) throw new Error(data.error || 'Failed to create checkout');
 
                 hideUpgradeModal();
                 window.location.href = data.url;
 
             } catch (error) {
-                console.error('Checkout error:', error);
                 showError(error.message || 'Failed to start checkout');
                 buyButton.disabled = false;
                 buyButton.innerHTML = 'Purchase Points';
             }
         }
 
-        // Add success handler
-        window.addEventListener('load', async () => {
-            const urlParams = new URLSearchParams(window.location.search);
-            if (urlParams.get('success') === 'true') {
-                try {
-                    // Wait for Firebase to initialize
-                    await new Promise(resolve => {
-                        const unsubscribe = firebase.auth().onAuthStateChanged((user) => {
-                            if (user) {
-                                unsubscribe();
-                                resolve();
-                            }
-                        });
-                    });
-
-                    showSuccess('Payment successful! Your points will be added shortly.');
-                    await initializeUserData();
-                    
-                    // Clear URL parameters
-                    window.history.replaceState({}, document.title, '/dashboard');
-                } catch (error) {
-                    console.error('Success handler error:', error);
-                    showError('Failed to load user data');
-                }
-            } else {
-                // Normal initialization
-                initializeUserData();
-            }
-        });
-
-        // Points management functions
-        function validatePoints(input) {
-            let value = parseInt(input.value);
-            if (isNaN(value) || !input.value) {
-                value = 10;
-            }
-            value = Math.max(10, Math.min(5000, value));
-            input.value = value;
-            updatePointsPrice();
-        }
-
-        // Single auth state change handler
-        firebase.auth().onAuthStateChanged((user) => {
-            currentUser = user;
-            if (user) {
-                initializeUserData();
-                setupPointsListener();
-                loadPurchaseHistory();
-            } else {
-                window.location.href = '/auth';
-            }
-        });
-
-        // Add this function to handle plan selection
-        async function handlePlanSelection(plan) {
-            try {
-                const response = await fetch('/api/create-checkout-session', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        plan,
-                        userId: firebase.auth().currentUser.uid
-                    })
-                });
-
-                if (!response.ok) throw new Error('Failed to create checkout session');
-                const data = await response.json();
-                
-                // Redirect to Stripe Checkout
-                window.location.href = data.url;
-            } catch (error) {
-                console.error('Plan selection error:', error);
-                showError('Failed to process plan selection');
-            }
-        }
-
-        // Add success message handler
-        window.addEventListener('load', () => {
-            const urlParams = new URLSearchParams(window.location.search);
-            if (urlParams.get('success') === 'true') {
-                showSuccess('Payment successful! Your points have been added to your account.');
-            }
-        });
-
-        // Add this function to load purchase history
+        // Load purchase history
         async function loadPurchaseHistory() {
-            if (!firebase.auth().currentUser) return;
-
             const purchaseHistory = document.getElementById('purchaseHistory');
             if (!purchaseHistory) return;
 
             try {
-                purchaseHistory.innerHTML = '<div class="text-gray-500">Loading purchase history...</div>';
-
                 const purchasesRef = firebase.firestore()
                     .collection('users')
-                    .doc(firebase.auth().currentUser.uid)
+                    .doc(currentUser.uid)
                     .collection('purchases')
                     .orderBy('timestamp', 'desc')
                     .limit(5);
 
                 const unsubscribe = purchasesRef.onSnapshot((snapshot) => {
-                    if (!purchaseHistory) return;
-
                     if (snapshot.empty) {
                         purchaseHistory.innerHTML = '<div class="text-gray-500">No purchase history available</div>';
                         return;
@@ -661,33 +327,26 @@
                     }).join('');
 
                     purchaseHistory.innerHTML = purchasesHTML;
-                }, (error) => {
-                    console.error('Purchase history error:', error);
-                    purchaseHistory.innerHTML = '<div class="text-red-500">Failed to load purchase history</div>';
                 });
 
-                // Cleanup listener on page unload
                 window.addEventListener('unload', () => unsubscribe());
             } catch (error) {
                 console.error('Load purchase history error:', error);
-                if (purchaseHistory) {
-                    purchaseHistory.innerHTML = '<div class="text-red-500">Failed to load purchase history</div>';
-                }
+                purchaseHistory.innerHTML = '<div class="text-red-500">Failed to load purchase history</div>';
             }
         }
 
-        // Call this function after Firebase initialization
-        firebase.auth().onAuthStateChanged((user) => {
-            if (user) {
-                initializeUserData();
-                setupPointsListener();
-                loadPurchaseHistory();
-            } else {
+        // Sign out
+        async function handleSignOut() {
+            try {
+                await firebase.auth().signOut();
                 window.location.href = '/auth';
+            } catch (error) {
+                showError('Failed to sign out');
             }
-        });
+        }
 
-        // Update the error and success functions in the script
+        // Notification handling
         function showNotification(message, type = 'success') {
             const notifications = document.getElementById('notifications');
             const notification = document.createElement('div');
@@ -698,302 +357,135 @@
             
             notification.innerHTML = `
                 <div class="flex items-center">
-                    <span class="mr-2">
-                        ${type === 'success' ? '✓' : '✕'}
-                    </span>
+                    <span class="mr-2">${type === 'success' ? '✓' : '✕'}</span>
                     <span>${message}</span>
                 </div>
             `;
             
             notifications.appendChild(notification);
             
-            // Animate in
-            setTimeout(() => {
-                notification.classList.remove('translate-x-full');
-            }, 100);
-            
-            // Remove after 3 seconds
+            setTimeout(() => notification.classList.remove('translate-x-full'), 100);
             setTimeout(() => {
                 notification.classList.add('translate-x-full');
-                setTimeout(() => {
-                    notifications.removeChild(notification);
-                }, 300);
+                setTimeout(() => notifications.removeChild(notification), 300);
             }, 3000);
         }
 
-        // Update the user data initialization
-        async function initializeUserData() {
-            try {
-                // Wait for Firebase to initialize
-                const initialized = await initializeFirebase();
-                if (!initialized) {
-                    throw new Error('Firebase failed to initialize');
-                }
-
-                // Wait for auth state to be ready
-                const user = firebase.auth().currentUser;
-                if (!user) {
-                    await new Promise((resolve, reject) => {
-                        const unsubscribe = firebase.auth().onAuthStateChanged((user) => {
-                            unsubscribe();
-                            if (user) {
-                                currentUser = user;
-                                resolve(user);
-                            } else {
-                                reject(new Error('No authenticated user'));
-                            }
-                        });
-                        
-                        setTimeout(() => reject(new Error('Auth timeout')), 10000);
-                    });
-                } else {
-                    currentUser = user;
-                }
-
-                // Load user data with offline support
-                const doc = await firebase.firestore()
-                    .collection('users')
-                    .doc(currentUser.uid)
-                    .get({ source: 'cache' })
-                    .catch(() => firebase.firestore()
-                        .collection('users')
-                        .doc(currentUser.uid)
-                        .get({ source: 'server' }));
-
-                if (doc.exists) {
-                    const userData = doc.data();
-                    userPoints = userData.points || 0;
-                    updatePointsDisplay();
-                }
-
-                // Setup real-time listeners with offline support
-                setupPointsListener();
-                loadPurchaseHistory();
-
-            } catch (error) {
-                console.error('Load user data error:', error);
-                
-                if (error.message === 'No authenticated user') {
-                    window.location.href = '/auth';
-                } else {
-                    showError('Failed to load user data. Please check your internet connection.');
-                    
-                    // Try to load cached data
-                    try {
-                        const cachedDoc = await firebase.firestore()
-                            .collection('users')
-                            .doc(currentUser?.uid)
-                            .get({ source: 'cache' });
-                        
-                        if (cachedDoc.exists) {
-                            const userData = cachedDoc.data();
-                            userPoints = userData.points || 0;
-                            updatePointsDisplay();
-                            showNotification('Using cached data (offline mode)', 'warning');
-                        }
-                    } catch (cacheError) {
-                        console.error('Cache load error:', cacheError);
-                    }
-                }
-            }
+        function showError(message) {
+            showNotification(message, 'error');
         }
 
-        // Update the points listener
-        function setupPointsListener() {
-            const user = firebase.auth().currentUser;
-            if (!user) return;
-
-            // Listen for points updates
-            const unsubscribe = firebase.firestore()
-                .collection('users')
-                .doc(user.uid)
-                .onSnapshot((doc) => {
-                    if (doc.exists) {
-                        const userData = doc.data();
-                        userPoints = userData.points || 0;
-                        
-                        // Update points display
-                        const pointsDisplay = document.querySelector('#pointsDisplay .font-semibold');
-                        if (pointsDisplay) {
-                            pointsDisplay.textContent = userPoints;
-                        }
-                    }
-                }, (error) => {
-                    console.error('Points listener error:', error);
-                });
-
-            // Cleanup listener when page unloads
-            window.addEventListener('unload', () => unsubscribe());
+        function showSuccess(message) {
+            showNotification(message, 'success');
         }
 
-        // Call these functions after Firebase initialization
-        firebase.auth().onAuthStateChanged((user) => {
-            if (user) {
-                initializeUserData();
-                setupPointsListener();
-            } else {
-                window.location.href = '/auth';
-            }
-        });
-
-        // Add this function to handle plan selection
-        async function handlePlanSelection(plan) {
-            try {
-                const response = await fetch('/api/create-checkout-session', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        plan,
-                        userId: firebase.auth().currentUser.uid
-                    })
-                });
-
-                if (!response.ok) throw new Error('Failed to create checkout session');
-                const data = await response.json();
-                
-                // Redirect to Stripe Checkout
-                window.location.href = data.url;
-            } catch (error) {
-                console.error('Plan selection error:', error);
-                showError('Failed to process plan selection');
-            }
-        }
-
-        // Add success message handler
-        window.addEventListener('load', () => {
-            const urlParams = new URLSearchParams(window.location.search);
-            if (urlParams.get('success') === 'true') {
-                showSuccess('Payment successful! Your points have been added to your account.');
-            }
-        });
-
-        // Add this function to load purchase history
-        async function loadPurchaseHistory() {
-            if (!firebase.auth().currentUser) return;
-
-            const purchaseHistory = document.getElementById('purchaseHistory');
-            if (!purchaseHistory) return;
-
-            try {
-                purchaseHistory.innerHTML = '<div class="text-gray-500">Loading purchase history...</div>';
-
-                const purchasesRef = firebase.firestore()
-                    .collection('users')
-                    .doc(firebase.auth().currentUser.uid)
-                    .collection('purchases')
-                    .orderBy('timestamp', 'desc')
-                    .limit(5);
-
-                const unsubscribe = purchasesRef.onSnapshot((snapshot) => {
-                    if (!purchaseHistory) return;
-
-                    if (snapshot.empty) {
-                        purchaseHistory.innerHTML = '<div class="text-gray-500">No purchase history available</div>';
-                        return;
-                    }
-
-                    const purchasesHTML = snapshot.docs.map(doc => {
-                        const purchase = doc.data();
-                        const date = purchase.timestamp?.toDate().toLocaleDateString() || 'N/A';
-                        const amount = ((purchase.amount || 0) / 100).toFixed(2);
-                        
-                        return `
-                            <div class="bg-gray-50 p-4 rounded-lg">
-                                <div class="flex justify-between items-center">
-                                    <div>
-                                        <p class="font-medium">${purchase.points || 0} Points</p>
-                                        <p class="text-sm text-gray-500">${date}</p>
-                                    </div>
-                                    <p class="text-green-600 font-medium">$${amount}</p>
-                                </div>
-                            </div>
-                        `;
-                    }).join('');
-
-                    purchaseHistory.innerHTML = purchasesHTML;
-                }, (error) => {
-                    console.error('Purchase history error:', error);
-                    purchaseHistory.innerHTML = '<div class="text-red-500">Failed to load purchase history</div>';
-                });
-
-                // Cleanup listener on page unload
-                window.addEventListener('unload', () => unsubscribe());
-            } catch (error) {
-                console.error('Load purchase history error:', error);
-                if (purchaseHistory) {
-                    purchaseHistory.innerHTML = '<div class="text-red-500">Failed to load purchase history</div>';
-                }
-            }
-        }
-
-        // Call this function after Firebase initialization
-        firebase.auth().onAuthStateChanged((user) => {
-            if (user) {
-                initializeUserData();
-                setupPointsListener();
-                loadPurchaseHistory();
-            } else {
-                window.location.href = '/auth';
-            }
-        });
-
-        // Call initialization when the page loads
-        document.addEventListener('DOMContentLoaded', initializeFirebase);
-
-        // Add this to your existing script
-        function updateConnectionStatus() {
-            const statusDiv = document.getElementById('connectionStatus');
-            if (!statusDiv) return;
-            
-            firebase.firestore().enableNetwork()
-                .then(() => {
-                    const unsubscribe = firebase.firestore()
-                        .collection('users')
-                        .doc(currentUser?.uid)
-                        .onSnapshot(() => {
-                            statusDiv.textContent = '🟢 Online';
-                            statusDiv.className = 'fixed top-16 right-4 z-50 p-2 rounded-lg text-sm bg-green-50 text-green-800';
-                        }, (error) => {
-                            statusDiv.textContent = '🔴 Offline';
-                            statusDiv.className = 'fixed top-16 right-4 z-50 p-2 rounded-lg text-sm bg-red-50 text-red-800';
-                        });
-
-                    window.addEventListener('unload', unsubscribe);
-                });
-        }
-
-        // Add this to your initialization
-        document.addEventListener('DOMContentLoaded', () => {
-            initializeFirebase().then(() => {
-                updateConnectionStatus();
-            });
-        });
-
-        // Single auth state handler
+        // Auth state handler
         firebase.auth().onAuthStateChanged(async (user) => {
             if (user) {
                 currentUser = user;
                 await initializeUserData();
-                setupPointsListener();
+                loadPurchaseHistory();
             } else {
                 window.location.href = '/auth';
             }
         });
 
-        // Remove duplicate event listeners and consolidate into one
+        // Initialize on page load
         document.addEventListener('DOMContentLoaded', async () => {
-            await initializeFirebase();
-            updateConnectionStatus();
-            
-            // Handle success URL parameter
-            const urlParams = new URLSearchParams(window.location.search);
-            if (urlParams.get('success') === 'true') {
-                showSuccess('Payment successful! Your points have been added to your account.');
-                window.history.replaceState({}, document.title, '/dashboard');
+            try {
+                if (!await initializeFirebase()) {
+                    return;
+                }
+
+                const elements = {
+                    buyPoints: document.querySelector('[data-action="buy-points"]'),
+                    signOut: document.querySelector('[data-action="sign-out"]'),
+                    closeModal: document.querySelector('[data-action="close-modal"]'),
+                    decreasePoints: document.querySelector('[data-action="decrease-points"]'),
+                    increasePoints: document.querySelector('[data-action="increase-points"]'),
+                    pointsInput: document.querySelector('#pointsToBuy'),
+                    buyButton: document.querySelector('#buyPointsBtn')
+                };
+
+                // Verify all elements exist
+                Object.entries(elements).forEach(([name, element]) => {
+                    if (!element) {
+                        throw new Error(`Required element ${name} not found`);
+                    }
+                });
+
+                // Add event listeners with error handling
+                elements.buyPoints.addEventListener('click', showUpgradeModal);
+                elements.signOut.addEventListener('click', handleSignOut);
+                elements.closeModal.addEventListener('click', hideUpgradeModal);
+                elements.decreasePoints.addEventListener('click', () => adjustPoints(-10));
+                elements.increasePoints.addEventListener('click', () => adjustPoints(10));
+                elements.pointsInput.addEventListener('input', (e) => validatePoints(e.target));
+                elements.buyButton.addEventListener('click', startPointsCheckout);
+
+                // Check success parameter
+                const urlParams = new URLSearchParams(window.location.search);
+                if (urlParams.get('success') === 'true') {
+                    showSuccess('Payment successful! Your points have been added to your account.');
+                    window.history.replaceState({}, document.title, '/dashboard');
+                }
+            } catch (error) {
+                console.error('Initialization error:', error);
+                showError('Failed to initialize page');
+            }
+        });
+
+        // Add this function after loadPurchaseHistory()
+        async function updateModalPurchaseHistory() {
+            const modalHistory = document.getElementById('modalPurchaseHistory');
+            if (!modalHistory) return;
+
+            try {
+                const purchasesRef = firebase.firestore()
+                    .collection('users')
+                    .doc(currentUser.uid)
+                    .collection('purchases')
+                    .orderBy('timestamp', 'desc')
+                    .limit(3);
+
+                const snapshot = await purchasesRef.get();
+                
+                if (snapshot.empty) {
+                    modalHistory.innerHTML = '<div class="text-gray-500">No recent purchases</div>';
+                    return;
+                }
+
+                const purchasesHTML = snapshot.docs.map(doc => {
+                    const purchase = doc.data();
+                    const date = purchase.timestamp?.toDate().toLocaleDateString() || 'N/A';
+                    const amount = ((purchase.amount || 0) / 100).toFixed(2);
+                    
+                    return `
+                        <div class="bg-gray-50 p-3 rounded">
+                            <div class="flex justify-between items-center">
+                                <div>
+                                    <p class="font-medium text-sm">${purchase.points || 0} Points</p>
+                                    <p class="text-xs text-gray-500">${date}</p>
+                                </div>
+                                <p class="text-green-600 font-medium text-sm">$${amount}</p>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+
+                modalHistory.innerHTML = purchasesHTML;
+            } catch (error) {
+                console.error('Modal history error:', error);
+                modalHistory.innerHTML = '<div class="text-red-500">Failed to load recent purchases</div>';
+            }
+        }
+
+        // Add cleanup on page unload
+        window.addEventListener('unload', () => {
+            if (unsubscribePoints) {
+                unsubscribePoints();
             }
         });
     </script>
 </body>
-</html>  
+</html>

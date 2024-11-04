@@ -1,157 +1,100 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const path = require('path');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
-const { HfInference } = require('@huggingface/inference');
+const admin = require('firebase-admin');
+const path = require('path');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
-const admin = require('firebase-admin');
+const crypto = require('crypto');
 
 const app = express();
-const hf = new HfInference(process.env.HUGGINGFACE_TOKEN);
 
+// Initialize Firebase Admin
+admin.initializeApp({
+    credential: admin.credential.cert({
+        projectId: process.env.FIREBASE_PROJECT_ID,
+        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+        privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n')
+    })
+});
+
+// Middleware
+app.use(express.static('public'));
 app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-const corsOptions = {
-    origin: ['https://testi-gilt.vercel.app'],
-    methods: ['GET', 'POST', 'OPTIONS'],
-    credentials: true,
-    allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
-};
-
-app.use(cors(corsOptions));
-
-// Move these to the top, right after the initial requires
-app.use(express.json({ limit: '1mb' }));
+app.use(cors());
 app.use(helmet({
-    contentSecurityPolicy: false // Temporarily disable for development
-}));
-app.use(express.static('public', {
-    maxAge: '1h' // Cache static files for 1 hour
+    contentSecurityPolicy: {
+        directives: {
+            defaultSrc: ["'self'"],
+            scriptSrc: [
+                "'self'",
+                "'unsafe-inline'",
+                "'unsafe-eval'",
+                "https://js.stripe.com",
+                "https://www.gstatic.com",
+                "https://cdn.tailwindcss.com",
+                "https://identitytoolkit.googleapis.com"
+            ],
+            styleSrc: [
+                "'self'",
+                "'unsafe-inline'",
+                "https://fonts.googleapis.com",
+                "https://cdn.tailwindcss.com"
+            ],
+            fontSrc: ["'self'", "https://fonts.gstatic.com"],
+            imgSrc: ["'self'", "https://img.icons8.com", "data:", "https:"],
+            connectSrc: [
+                "'self'",
+                "https://api.stripe.com",
+                "https://firestore.googleapis.com",
+                "https://identitytoolkit.googleapis.com",
+                "https://*.googleapis.com",
+                "wss://*.firebaseio.com"
+            ],
+            frameSrc: ["'self'", "https://js.stripe.com"],
+            scriptSrcAttr: ["'unsafe-inline'"]
+        },
+    },
+    crossOriginEmbedderPolicy: false,
+    crossOriginResourcePolicy: { policy: "cross-origin" }
 }));
 
-// Optimize rate limiting
-const limiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: 100,
-    standardHeaders: true,
-    legacyHeaders: false,
+app.use((req, res, next) => {
+    res.locals.nonce = crypto.randomBytes(16).toString('base64');
+    next();
 });
 
-// Special handling for Stripe webhook - must be before other middleware
-app.post('/webhook', express.raw({type: 'application/json'}), async (request, response) => {
-    const sig = request.headers['stripe-signature'];
-    let event;
-
-    try {
-        event = stripe.webhooks.constructEvent(
-            request.body,
-            sig,
-            process.env.STRIPE_WEBHOOK_SECRET
-        );
-
-        if (event.type === 'checkout.session.completed') {
-            const session = event.data.object;
-            
-            try {
-                const { userId, points } = session.metadata;
-                
-                if (!userId || !points) {
-                    throw new Error('Missing metadata');
-                }
-
-                // Use transaction for atomic updates
-                const userRef = admin.firestore().collection('users').doc(userId);
-                await admin.firestore().runTransaction(async (transaction) => {
-                    const userDoc = await transaction.get(userRef);
-                    
-                    if (!userDoc.exists) {
-                        throw new Error('User not found');
-                    }
-
-                    const currentPoints = userDoc.data().points || 0;
-                    const newPoints = currentPoints + parseInt(points);
-
-                    // Update user points
-                    transaction.update(userRef, { 
-                        points: newPoints,
-                        lastUpdated: admin.firestore.FieldValue.serverTimestamp()
-                    });
-
-                    // Record purchase
-                    const purchaseRef = userRef.collection('purchases').doc();
-                    transaction.set(purchaseRef, {
-                        points: parseInt(points),
-                        amount: session.amount_total,
-                        timestamp: admin.firestore.FieldValue.serverTimestamp(),
-                        paymentId: session.payment_intent,
-                        status: 'completed'
-                    });
-                });
-
-                console.log(`Successfully updated points for user ${userId}`);
-                response.json({ received: true });
-            } catch (error) {
-                console.error('Webhook processing error:', error);
-                return response.status(500).send(`Webhook Error: ${error.message}`);
-            }
-        }
-    } catch (err) {
-        console.error('Webhook signature verification failed:', err);
-        return response.status(400).send(`Webhook Error: ${err.message}`);
-    }
-});
-
-// Route handlers for clean URLs
+// Serve static files
 app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public/index.html'));
-});
-
-app.get('/index', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public/index.html'));
-});
-
-app.get('/auth', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public/auth.html'));
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 app.get('/dashboard', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public/dashboard.html'));
+    res.sendFile(path.join(__dirname, 'public', 'dashboard.html'));
 });
 
-// API endpoints
-app.post('/api/create-checkout-session', async (req, res) => {
+app.get('/auth', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'auth.html'));
+});
+
+// Move rate limiter before the route definition
+const checkoutLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 10,
+    message: { error: 'Too many checkout attempts, please try again later' }
+});
+
+// Create points checkout session
+app.post('/api/create-points-checkout', checkoutLimiter, async (req, res) => {
     try {
-        const { plan, userId } = req.body;
+        const { points, userId } = req.body;
         
-        // Validate user exists
-        const userDoc = await admin.firestore().collection('users').doc(userId).get();
-        if (!userDoc.exists) {
-            return res.status(404).json({ error: 'User not found' });
+        if (!points || !userId) {
+            return res.status(400).json({ error: 'Missing required parameters' });
         }
 
-        // Define prices for different plans
-        const prices = {
-            starter: {
-                amount: 1500, // $15.00
-                points: 25
-            },
-            pro: {
-                amount: 2500, // $25.00
-                points: 50
-            },
-            premium: {
-                amount: 3500, // $35.00
-                points: 100
-            }
-        };
-
-        const planDetails = prices[plan];
-        if (!planDetails) {
-            return res.status(400).json({ error: 'Invalid plan selected' });
-        }
+        const amount = points * 10; // $0.10 per point
 
         const session = await stripe.checkout.sessions.create({
             payment_method_types: ['card'],
@@ -159,21 +102,19 @@ app.post('/api/create-checkout-session', async (req, res) => {
                 price_data: {
                     currency: 'usd',
                     product_data: {
-                        name: `TikSave ${plan.charAt(0).toUpperCase() + plan.slice(1)} Plan`,
-                        description: `${planDetails.points} AI Generations`
+                        name: `${points} Points Package`,
+                        description: `Purchase ${points} points for your account`
                     },
-                    unit_amount: planDetails.amount,
+                    unit_amount: amount
                 },
-                quantity: 1,
+                quantity: 1
             }],
             mode: 'payment',
-            success_url: `${process.env.NODE_ENV === 'production' ? 'https://testi-gilt.vercel.app' : 'http://localhost:3000'}/dashboard?success=true`,
-            cancel_url: `${process.env.NODE_ENV === 'production' ? 'https://testi-gilt.vercel.app' : 'http://localhost:3000'}/dashboard`,
+            success_url: `${process.env.BASE_URL}/dashboard?success=true&points=${points}`,
+            cancel_url: `${process.env.BASE_URL}/dashboard?canceled=true`,
             metadata: {
                 userId,
-                points: planDetails.points,
-                plan,
-                type: 'plan_purchase'
+                points: points.toString()
             }
         });
 
@@ -184,153 +125,76 @@ app.post('/api/create-checkout-session', async (req, res) => {
     }
 });
 
-app.post('/api/generate-caption', async (req, res) => {
-    try {
-        const { description } = req.body;
+// Add raw body parsing for webhook
+app.post('/api/webhook', 
+    express.raw({type: 'application/json'}), 
+    async (req, res) => {
+        const sig = req.headers['stripe-signature'];
         
-        // Generate caption using HuggingFace
-        const response = await hf.textGeneration({
-            model: 'gpt2',
-            inputs: `Generate a viral TikTok caption for this video: ${description}\nCaption:`,
-            parameters: {
-                max_length: 100,
-                temperature: 0.7,
-                top_p: 0.9
+        try {
+            const event = stripe.webhooks.constructEvent(
+                req.body,
+                sig,
+                process.env.STRIPE_WEBHOOK_SECRET
+            );
+
+            if (event.type === 'checkout.session.completed') {
+                await handleSuccessfulPayment(event.data.object);
             }
-        });
 
-        const caption = response.generated_text.split('Caption:')[1].trim();
-        res.json({ caption });
-    } catch (error) {
-        console.error('Caption generation error:', error);
-        res.status(500).json({ error: 'Failed to generate caption' });
+            res.json({ received: true });
+        } catch (err) {
+            console.error('Webhook error:', err);
+            return res.status(400).send(`Webhook Error: ${err.message}`);
+        }
     }
-});
+);
 
-app.post('/api/generate-hashtags', async (req, res) => {
-    try {
-        const { description } = req.body;
-        
-        // Generate hashtags using HuggingFace
-        const response = await hf.textGeneration({
-            model: 'gpt2',
-            inputs: `Generate trending TikTok hashtags for this video: ${description}\nHashtags:`,
-            parameters: {
-                max_length: 100,
-                temperature: 0.7,
-                top_p: 0.9
-            }
-        });
-
-        const hashtags = response.generated_text.split('Hashtags:')[1].trim();
-        res.json({ hashtags });
-    } catch (error) {
-        console.error('Hashtags generation error:', error);
-        res.status(500).json({ error: 'Failed to generate hashtags' });
+// Add this helper function for payment processing
+async function handleSuccessfulPayment(session) {
+    const { userId, points } = session.metadata;
+    
+    if (!userId || !points) {
+        throw new Error('Missing metadata');
     }
-});
 
-// Add this near your other endpoints
-app.get('/api/firebase-config', (req, res) => {
-    const firebaseConfig = {
-        apiKey: process.env.FIREBASE_API_KEY,
-        authDomain: process.env.FIREBASE_AUTH_DOMAIN,
-        projectId: process.env.FIREBASE_PROJECT_ID,
-        storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
-        messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID,
-        appId: process.env.FIREBASE_APP_ID,
-        measurementId: process.env.FIREBASE_MEASUREMENT_ID
-    };
-    res.json(firebaseConfig);
-});
-
-// Add this new endpoint for points purchase
-app.post('/api/create-points-checkout', async (req, res) => {
-    console.log('Points checkout request:', req.body);
-
-    try {
-        const { points, userId } = req.body;
+    const userRef = admin.firestore().collection('users').doc(userId);
+    
+    await admin.firestore().runTransaction(async (transaction) => {
+        const userDoc = await transaction.get(userRef);
         
-        // Validate inputs
-        if (!userId || !points) {
-            return res.status(400).json({ error: 'Missing required fields' });
+        if (!userDoc.exists) {
+            throw new Error('User not found');
         }
 
-        const pointsNum = parseInt(points);
-        if (isNaN(pointsNum) || pointsNum < 10 || pointsNum > 5000) {
-            return res.status(400).json({ error: 'Points must be between 10 and 5000' });
-        }
+        const currentPoints = userDoc.data().points || 0;
+        const newPoints = currentPoints + parseInt(points);
 
-        // Create checkout session
-        const session = await stripe.checkout.sessions.create({
-            payment_method_types: ['card'],
-            line_items: [{
-                price_data: {
-                    currency: 'usd',
-                    product_data: {
-                        name: `${pointsNum} TikSave Points`,
-                        description: 'Points for AI generations'
-                    },
-                    unit_amount: 10
-                },
-                quantity: pointsNum,
-            }],
-            mode: 'payment',
-            success_url: `${process.env.BASE_URL || 'https://testi-gilt.vercel.app'}/dashboard?success=true&points=${pointsNum}`,
-            cancel_url: `${process.env.BASE_URL || 'https://testi-gilt.vercel.app'}/dashboard`,
-            metadata: {
-                userId,
-                points: pointsNum.toString()
-            }
+        // Update points
+        transaction.update(userRef, { 
+            points: newPoints,
+            lastUpdated: admin.firestore.FieldValue.serverTimestamp()
         });
 
-        res.json({ url: session.url });
-    } catch (error) {
-        console.error('Points checkout error:', error);
-        res.status(500).json({ 
-            error: 'Failed to create checkout session',
-            details: error.message 
+        // Record purchase
+        const purchaseRef = userRef.collection('purchases').doc();
+        transaction.set(purchaseRef, {
+            points: parseInt(points),
+            amount: session.amount_total,
+            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+            paymentId: session.payment_intent,
+            status: 'completed'
         });
-    }
-});
+    });
+}
 
-// Handle 404
-app.use((req, res) => {
-    res.status(404).sendFile(path.join(__dirname, 'public/404.html'));
-});
-
-// Initialize Firebase Admin
-admin.initializeApp({
-    credential: admin.credential.cert({
-        type: "service_account",
-        project_id: process.env.FIREBASE_PROJECT_ID,
-        private_key: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
-        client_email: process.env.FIREBASE_CLIENT_EMAIL,
-        client_id: process.env.FIREBASE_CLIENT_ID,
-        auth_uri: "https://accounts.google.com/o/oauth2/auth",
-        token_uri: "https://oauth2.googleapis.com/token",
-        auth_provider_x509_cert_url: "https://www.googleapis.com/oauth2/v1/certs",
-        client_x509_cert_url: process.env.FIREBASE_CLIENT_CERT_URL
-    })
-});
-
-// Add this before your routes
+// Add this after your other middleware
 app.use((err, req, res, next) => {
     console.error('Server error:', err);
-    res.status(500).json({
-        error: 'Internal server error',
-        details: process.env.NODE_ENV === 'development' ? err.message : undefined
+    res.status(500).json({ 
+        error: 'Internal server error', 
+        message: process.env.NODE_ENV === 'development' ? err.message : undefined 
     });
-});
-
-// Add this after your initial requires
-app.use((req, res, next) => {
-    console.log(`${req.method} ${req.path}`, {
-        body: req.method === 'POST' ? req.body : undefined,
-        query: req.query,
-        ip: req.ip
-    });
-    next();
 });
 
 const PORT = process.env.PORT || 3000;
