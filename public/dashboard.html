@@ -185,20 +185,28 @@
                 const response = await fetch('/api/firebase-config');
                 if (!response.ok) throw new Error('Failed to load Firebase configuration');
                 const firebaseConfig = await response.json();
-                firebase.initializeApp(firebaseConfig);
+                
+                // Initialize Firebase if not already initialized
+                if (!firebase.apps.length) {
+                    firebase.initializeApp(firebaseConfig);
+                }
+                
+                // Set persistence to local
+                await firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL);
                 
                 // Check authentication state
                 firebase.auth().onAuthStateChanged((user) => {
                     if (user) {
                         currentUser = user;
-                        loadUserData();
+                        initializeUserData();
+                        setupPointsListener();
                     } else {
                         window.location.href = '/auth';
                     }
                 });
             } catch (error) {
-                showError('Failed to initialize application. Please try again later.');
                 console.error('Firebase initialization error:', error);
+                showError('Failed to initialize application');
             }
         }
 
@@ -477,30 +485,40 @@
             }, 3000);
         }
 
-        // Add this to the initialization script
+        // Update the user data initialization
         async function initializeUserData() {
             try {
                 const user = firebase.auth().currentUser;
-                if (!user) return;
+                if (!user) {
+                    throw new Error('No authenticated user');
+                }
 
                 const userDoc = await firebase.firestore().collection('users').doc(user.uid).get();
                 if (userDoc.exists) {
                     const userData = userDoc.data();
-                    // Update points display
                     document.querySelector('#pointsDisplay .font-semibold').textContent = userData.points || 3;
+                } else {
+                    // Create user document if it doesn't exist
+                    await firebase.firestore().collection('users').doc(user.uid).set({
+                        email: user.email,
+                        points: 3,
+                        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                        lastLogin: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                    document.querySelector('#pointsDisplay .font-semibold').textContent = '3';
                 }
             } catch (error) {
-                console.error('Error loading user data:', error);
+                console.error('Load user data error:', error);
                 showError('Failed to load user data');
             }
         }
 
-        // Add real-time points updates
+        // Update the points listener
         function setupPointsListener() {
             const user = firebase.auth().currentUser;
             if (!user) return;
 
-            firebase.firestore().collection('users').doc(user.uid)
+            const unsubscribe = firebase.firestore().collection('users').doc(user.uid)
                 .onSnapshot((doc) => {
                     if (doc.exists) {
                         const points = doc.data().points || 3;
@@ -508,7 +526,11 @@
                     }
                 }, (error) => {
                     console.error('Points listener error:', error);
+                    showError('Failed to update points');
                 });
+
+            // Store unsubscribe function for cleanup
+            window.addEventListener('beforeunload', unsubscribe);
         }
 
         // Call these functions after Firebase initialization

@@ -13,10 +13,11 @@ const hf = new HfInference(process.env.HUGGINGFACE_TOKEN);
 
 const corsOptions = {
     origin: process.env.NODE_ENV === 'production' 
-        ? ['https://testi-gilt.vercel.app', 'https://testi-gilt.vercel.app/'] 
+        ? ['https://testi-gilt.vercel.app'] 
         : ['http://localhost:3000'],
-    optionsSuccessStatus: 200,
-    credentials: true
+    methods: ['GET', 'POST'],
+    credentials: true,
+    optionsSuccessStatus: 200
 };
 
 app.use(cors(corsOptions));
@@ -112,6 +113,12 @@ app.post('/api/create-points-checkout', async (req, res) => {
     try {
         const { points, userId } = req.body;
         
+        // Validate user exists
+        const userDoc = await admin.firestore().collection('users').doc(userId).get();
+        if (!userDoc.exists) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+        
         // Validate points amount
         if (points < 10 || points > 5000) {
             return res.status(400).json({ error: 'Invalid points amount' });
@@ -146,7 +153,7 @@ app.post('/api/create-points-checkout', async (req, res) => {
 
         res.json({ url: session.url });
     } catch (error) {
-        console.error('Checkout session error:', error);
+        console.error('Checkout error:', error);
         res.status(500).json({ error: 'Failed to create checkout session' });
     }
 });
