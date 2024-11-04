@@ -56,46 +56,51 @@ app.post('/webhook', express.raw({type: 'application/json'}), async (request, re
             try {
                 const { userId, points, type } = session.metadata;
                 
-                if (userId && points && (type === 'points_purchase' || type === 'plan_purchase')) {
-                    const userRef = admin.firestore().collection('users').doc(userId);
+                if (!userId || !points) {
+                    throw new Error('Missing metadata');
+                }
+
+                const userRef = admin.firestore().collection('users').doc(userId);
+                
+                // Use transaction for atomic updates
+                await admin.firestore().runTransaction(async (transaction) => {
+                    const userDoc = await transaction.get(userRef);
                     
-                    await admin.firestore().runTransaction(async (transaction) => {
-                        const userDoc = await transaction.get(userRef);
-                        
-                        if (!userDoc.exists) {
-                            throw new Error('User not found');
-                        }
+                    if (!userDoc.exists) {
+                        throw new Error('User not found');
+                    }
 
-                        const currentPoints = userDoc.data().points || 0;
-                        const newPoints = currentPoints + parseInt(points);
+                    const currentPoints = userDoc.data().points || 0;
+                    const newPoints = currentPoints + parseInt(points);
 
-                        // Update user points
-                        transaction.update(userRef, { 
-                            points: newPoints,
-                            lastUpdated: admin.firestore.FieldValue.serverTimestamp()
-                        });
-
-                        // Record purchase
-                        const purchaseRef = userRef.collection('purchases').doc();
-                        transaction.set(purchaseRef, {
-                            points: parseInt(points),
-                            amount: session.amount_total,
-                            timestamp: admin.firestore.FieldValue.serverTimestamp(),
-                            paymentId: session.payment_intent,
-                            type: type,
-                            status: 'completed'
-                        });
+                    // Update user points
+                    transaction.update(userRef, { 
+                        points: newPoints,
+                        lastUpdated: admin.firestore.FieldValue.serverTimestamp()
                     });
 
-                    console.log(`Successfully updated points for user ${userId}`);
-                }
+                    // Record purchase history
+                    const purchaseRef = userRef.collection('purchases').doc();
+                    transaction.set(purchaseRef, {
+                        points: parseInt(points),
+                        amount: session.amount_total,
+                        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                        paymentId: session.payment_intent,
+                        type: type || 'points_purchase',
+                        status: 'completed'
+                    });
+                });
+
+                console.log(`Successfully updated points for user ${userId}`);
+                response.json({ received: true });
             } catch (error) {
                 console.error('Webhook processing error:', error);
                 return response.status(500).send(`Webhook processing failed: ${error.message}`);
             }
+        } else {
+            // Handle other event types if needed
+            response.json({ received: true });
         }
-
-        response.json({ received: true });
     } catch (err) {
         console.error('Webhook signature verification failed:', err.message);
         return response.status(400).send(`Webhook Error: ${err.message}`);
@@ -257,9 +262,13 @@ app.post('/api/create-points-checkout', async (req, res) => {
             return res.status(400).json({ error: 'Points must be between 10 and 5000' });
         }
 
-        // Calculate total amount (10 cents per point)
-        const unitAmount = Math.round(pointsNum * 10); // $0.10 per point in cents
+        // Verify user exists
+        const userDoc = await admin.firestore().collection('users').doc(userId).get();
+        if (!userDoc.exists) {
+            return res.status(404).json({ error: 'User not found' });
+        }
 
+        // Create Stripe checkout session
         const session = await stripe.checkout.sessions.create({
             payment_method_types: ['card'],
             line_items: [{
@@ -269,13 +278,13 @@ app.post('/api/create-points-checkout', async (req, res) => {
                         name: `${pointsNum} TikSave Points`,
                         description: 'Points for AI generations'
                     },
-                    unit_amount: 10, // 10 cents per point
+                    unit_amount: 10, // $0.10 per point
                 },
                 quantity: pointsNum,
             }],
             mode: 'payment',
-            success_url: `${req.protocol}://${req.get('host')}/dashboard?success=true&points=${pointsNum}`,
-            cancel_url: `${req.protocol}://${req.get('host')}/dashboard`,
+            success_url: `https://testi-gilt.vercel.app/dashboard?success=true&points=${pointsNum}`,
+            cancel_url: `https://testi-gilt.vercel.app/dashboard`,
             metadata: {
                 userId,
                 points: pointsNum.toString(),
@@ -311,6 +320,15 @@ admin.initializeApp({
         auth_provider_x509_cert_url: "https://www.googleapis.com/oauth2/v1/certs",
         client_x509_cert_url: process.env.FIREBASE_CLIENT_CERT_URL
     })
+});
+
+// Add this before your routes
+app.use((err, req, res, next) => {
+    console.error('Server error:', err);
+    res.status(500).json({
+        error: 'Internal server error',
+        details: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
 });
 
 const PORT = process.env.PORT || 3000;
