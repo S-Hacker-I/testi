@@ -427,25 +427,32 @@
         }
 
         async function startPointsCheckout() {
-            if (!currentUser) {
-                showError('Please log in to purchase points');
-                return;
-            }
-
-            const points = parseInt(document.getElementById('pointsToBuy').value);
-            
-            if (isNaN(points) || points < 10 || points > 5000) {
-                showError('Please select between 10 and 5000 points');
-                return;
-            }
-
             try {
+                if (!currentUser) {
+                    showError('Please log in to purchase points');
+                    return;
+                }
+
+                const pointsInput = document.getElementById('pointsToBuy');
+                const points = parseInt(pointsInput.value);
+                
+                if (isNaN(points) || points < 10 || points > 5000) {
+                    showError('Please enter between 10 and 5000 points');
+                    return;
+                }
+
+                // Show loading state
+                const buyButton = document.querySelector('#buyPointsBtn');
+                const originalText = buyButton.textContent;
+                buyButton.disabled = true;
+                buyButton.textContent = 'Processing...';
+
                 const response = await fetch('/api/create-points-checkout', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({ 
+                    body: JSON.stringify({
                         points,
                         userId: currentUser.uid
                     })
@@ -456,11 +463,16 @@
                     throw new Error(errorData.error || 'Failed to create checkout session');
                 }
 
-                const data = await response.json();
-                window.location.href = data.url;
+                const { url } = await response.json();
+                window.location.href = url;
             } catch (error) {
                 console.error('Checkout error:', error);
                 showError(error.message || 'Failed to start checkout');
+                
+                // Reset button state
+                const buyButton = document.querySelector('#buyPointsBtn');
+                buyButton.disabled = false;
+                buyButton.textContent = 'Buy Points';
             }
         }
 

@@ -20,9 +20,6 @@ const corsOptions = {
     optionsSuccessStatus: 200
 };
 
-app.use(cors(corsOptions));
-app.use(express.json());
-
 // Serve static files from public directory
 app.use(express.static('public'));
 
@@ -42,6 +39,81 @@ app.get('/auth', (req, res) => {
 app.get('/dashboard', (req, res) => {
     res.sendFile(path.join(__dirname, 'public/dashboard.html'));
 });
+
+// Special handling for Stripe webhook
+app.post('/webhook', express.raw({type: 'application/json'}), async (request, response) => {
+    const sig = request.headers['stripe-signature'];
+    let event;
+
+    try {
+        event = stripe.webhooks.constructEvent(
+            request.body,
+            sig,
+            process.env.STRIPE_WEBHOOK_SECRET
+        );
+    } catch (err) {
+        console.error('Webhook signature verification failed:', err.message);
+        return response.status(400).send(`Webhook Error: ${err.message}`);
+    }
+
+    try {
+        if (event.type === 'checkout.session.completed') {
+            const session = event.data.object;
+            const { userId, points, type } = session.metadata;
+
+            // Update user's points in Firestore
+            const userRef = admin.firestore().collection('users').doc(userId);
+            await admin.firestore().runTransaction(async (transaction) => {
+                const userDoc = await transaction.get(userRef);
+                if (!userDoc.exists) {
+                    throw new Error('User not found');
+                }
+
+                const currentPoints = userDoc.data().points || 0;
+                const newPoints = currentPoints + parseInt(points);
+
+                transaction.update(userRef, {
+                    points: newPoints,
+                    lastPurchase: admin.firestore.FieldValue.serverTimestamp(),
+                    lastPurchaseType: type,
+                    lastPurchaseAmount: session.amount_total
+                });
+            });
+
+            // Add purchase to user's history
+            await userRef.collection('purchases').add({
+                amount: session.amount_total,
+                points: parseInt(points),
+                type: type,
+                timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                paymentId: session.payment_intent
+            });
+        }
+
+        response.json({received: true});
+    } catch (error) {
+        console.error('Webhook processing failed:', error);
+        response.status(500).send(`Webhook processing failed: ${error.message}`);
+    }
+});
+
+// Then add the regular middleware
+app.use(cors(corsOptions));
+app.use(express.json());
+app.use(helmet());
+
+// Rate limiting should come after other middleware
+const limiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 100
+});
+app.use(limiter);
+
+const apiLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 50
+});
+app.use('/api/', apiLimiter);
 
 // API endpoints
 app.post('/api/create-checkout-session', async (req, res) => {
@@ -171,6 +243,10 @@ app.post('/api/create-points-checkout', async (req, res) => {
     try {
         const { points, userId } = req.body;
         
+        if (!userId) {
+            return res.status(400).json({ error: 'User ID is required' });
+        }
+        
         // Validate user exists
         const userDoc = await admin.firestore().collection('users').doc(userId).get();
         if (!userDoc.exists) {
@@ -178,13 +254,14 @@ app.post('/api/create-points-checkout', async (req, res) => {
         }
         
         // Validate points amount
-        if (points < 10 || points > 5000) {
-            return res.status(400).json({ error: 'Invalid points amount' });
+        const pointsNum = parseInt(points);
+        if (isNaN(pointsNum) || pointsNum < 10 || pointsNum > 5000) {
+            return res.status(400).json({ error: 'Points must be between 10 and 5000' });
         }
 
         // Calculate price ($0.10 per point)
         const unitAmount = 10; // $0.10 in cents
-        const amount = points * unitAmount;
+        const amount = pointsNum * unitAmount;
 
         const session = await stripe.checkout.sessions.create({
             payment_method_types: ['card'],
@@ -192,84 +269,30 @@ app.post('/api/create-points-checkout', async (req, res) => {
                 price_data: {
                     currency: 'usd',
                     product_data: {
-                        name: `${points} TikSave Points`,
-                        description: 'Points for generating AI captions and hashtags'
+                        name: `${pointsNum} TikSave Points`,
+                        description: 'Points for AI generations'
                     },
-                    unit_amount: amount,
+                    unit_amount: unitAmount,
                 },
-                quantity: 1,
+                quantity: pointsNum,
             }],
             mode: 'payment',
-            success_url: `${process.env.NODE_ENV === 'production' ? 'https://testi-gilt.vercel.app' : 'http://localhost:3000'}/dashboard?points=${points}`,
+            success_url: `${process.env.NODE_ENV === 'production' ? 'https://testi-gilt.vercel.app' : 'http://localhost:3000'}/dashboard?success=true&points=${pointsNum}`,
             cancel_url: `${process.env.NODE_ENV === 'production' ? 'https://testi-gilt.vercel.app' : 'http://localhost:3000'}/dashboard`,
             metadata: {
                 userId,
-                points,
+                points: pointsNum.toString(),
                 type: 'points_purchase'
             }
         });
 
         res.json({ url: session.url });
     } catch (error) {
-        console.error('Checkout error:', error);
-        res.status(500).json({ error: 'Failed to create checkout session' });
-    }
-});
-
-// Update the webhook endpoint
-app.post('/webhook', express.raw({type: 'application/json'}), async (request, response) => {
-    const sig = request.headers['stripe-signature'];
-    let event;
-
-    try {
-        event = stripe.webhooks.constructEvent(
-            request.body,
-            sig,
-            process.env.STRIPE_WEBHOOK_SECRET
-        );
-    } catch (err) {
-        console.error('Webhook signature verification failed:', err.message);
-        return response.status(400).send(`Webhook Error: ${err.message}`);
-    }
-
-    try {
-        if (event.type === 'checkout.session.completed') {
-            const session = event.data.object;
-            const { userId, points, type } = session.metadata;
-
-            // Update user's points in Firestore
-            const userRef = admin.firestore().collection('users').doc(userId);
-            await admin.firestore().runTransaction(async (transaction) => {
-                const userDoc = await transaction.get(userRef);
-                if (!userDoc.exists) {
-                    throw new Error('User not found');
-                }
-
-                const currentPoints = userDoc.data().points || 0;
-                const newPoints = currentPoints + parseInt(points);
-
-                transaction.update(userRef, {
-                    points: newPoints,
-                    lastPurchase: admin.firestore.FieldValue.serverTimestamp(),
-                    lastPurchaseType: type,
-                    lastPurchaseAmount: session.amount_total
-                });
-            });
-
-            // Add purchase to user's history
-            await userRef.collection('purchases').add({
-                amount: session.amount_total,
-                points: parseInt(points),
-                type: type,
-                timestamp: admin.firestore.FieldValue.serverTimestamp(),
-                paymentId: session.payment_intent
-            });
-        }
-
-        response.json({received: true});
-    } catch (error) {
-        console.error('Webhook processing failed:', error);
-        response.status(500).send(`Webhook processing failed: ${error.message}`);
+        console.error('Points checkout error:', error);
+        res.status(500).json({ 
+            error: 'Failed to create checkout session',
+            details: error.message 
+        });
     }
 });
 
@@ -277,25 +300,6 @@ app.post('/webhook', express.raw({type: 'application/json'}), async (request, re
 app.use((req, res) => {
     res.status(404).sendFile(path.join(__dirname, 'public/404.html'));
 });
-
-// Add security headers
-app.use(helmet());
-
-// Rate limiting
-const limiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 100 // limit each IP to 100 requests per windowMs
-});
-
-// Apply rate limiting to all routes
-app.use(limiter);
-
-// Apply stricter rate limiting to API routes
-const apiLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: 50
-});
-app.use('/api/', apiLimiter);
 
 // Initialize Firebase Admin
 admin.initializeApp({
