@@ -19,10 +19,11 @@ admin.initializeApp({
     })
 });
 
-// Move this BEFORE any middleware
+// MUST be first, before any other middleware
 app.post('/api/webhook', 
     express.raw({type: 'application/json'}), 
     async (req, res) => {
+        console.log('Webhook received');
         const sig = req.headers['stripe-signature'];
         
         try {
@@ -32,10 +33,11 @@ app.post('/api/webhook',
                 process.env.STRIPE_WEBHOOK_SECRET
             );
 
-            console.log('Webhook received:', event.type, event.data.object);
+            console.log('Webhook event type:', event.type);
 
             if (event.type === 'checkout.session.completed') {
                 const session = event.data.object;
+                console.log('Session metadata:', session.metadata);
                 await handleSuccessfulPayment(session);
             }
 
@@ -121,8 +123,10 @@ app.post('/api/create-points-checkout', checkoutLimiter, async (req, res) => {
             return res.status(400).json({ error: 'Missing required parameters' });
         }
 
-        // Convert to cents (Stripe uses smallest currency unit)
         const unitAmount = 10; // $0.10 in cents
+        const totalAmount = unitAmount * points;
+
+        console.log('Creating checkout session:', { points, userId, totalAmount });
 
         const session = await stripe.checkout.sessions.create({
             payment_method_types: ['card'],
@@ -131,14 +135,14 @@ app.post('/api/create-points-checkout', checkoutLimiter, async (req, res) => {
                     currency: 'usd',
                     product_data: {
                         name: `${points} Points Package`,
-                        description: `Purchase ${points} points for your account`
+                        description: `Purchase ${points} points for TikSave`
                     },
-                    unit_amount: unitAmount // 10 cents per point
+                    unit_amount: totalAmount
                 },
-                quantity: points // This multiplies the unit_amount by points
+                quantity: 1 // Use quantity of 1 since total amount is calculated
             }],
             mode: 'payment',
-            success_url: `${process.env.BASE_URL}/dashboard?success=true`,
+            success_url: `${process.env.BASE_URL}/dashboard?success=true&points=${points}`,
             cancel_url: `${process.env.BASE_URL}/dashboard?canceled=true`,
             metadata: {
                 userId: userId,
@@ -146,6 +150,7 @@ app.post('/api/create-points-checkout', checkoutLimiter, async (req, res) => {
             }
         });
 
+        console.log('Checkout session created:', session.id);
         res.json({ url: session.url });
     } catch (error) {
         console.error('Checkout error:', error);

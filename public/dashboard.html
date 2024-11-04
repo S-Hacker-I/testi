@@ -236,7 +236,8 @@
                             if (newPoints !== userPoints) {
                                 const difference = newPoints - userPoints;
                                 if (difference > 0) {
-                                    showSuccess(`+${difference} points added to your account!`);
+                                    showSuccess(`Successfully added ${difference} points to your account!`);
+                                    loadPurchaseHistory(); // Refresh purchase history
                                 }
                                 userPoints = newPoints;
                                 updatePointsDisplay();
@@ -247,7 +248,6 @@
                         showError('Failed to listen for points updates');
                     });
                 } else {
-                    // Create user document if it doesn't exist
                     await userRef.set({
                         points: 0,
                         created: firebase.firestore.FieldValue.serverTimestamp()
@@ -309,6 +309,11 @@
             const points = parseInt(document.getElementById('pointsToBuy').value);
             const buyButton = document.getElementById('buyPointsBtn');
             
+            if (points < 10 || points > 5000) {
+                showError('Points must be between 10 and 5000');
+                return;
+            }
+            
             try {
                 console.log('Starting checkout:', { points, userId: currentUser.uid });
                 
@@ -327,7 +332,6 @@
                 const data = await response.json();
                 
                 if (!response.ok) {
-                    console.error('Checkout error:', data);
                     throw new Error(data.error || 'Failed to create checkout');
                 }
 
