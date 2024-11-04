@@ -218,11 +218,145 @@
         }
 
         function setupEventListeners() {
-            // Add event listeners for your elements
+            // Buy points button
+            document.querySelector('[data-action="buy-points"]').addEventListener('click', () => {
+                document.getElementById('upgradeModal').classList.remove('hidden');
+            });
+
+            // Close modal button
+            document.querySelector('[data-action="close-modal"]').addEventListener('click', () => {
+                document.getElementById('upgradeModal').classList.add('hidden');
+            });
+
+            // Sign out button
+            document.querySelector('[data-action="sign-out"]').addEventListener('click', async () => {
+                try {
+                    await firebase.auth().signOut();
+                    window.location.href = '/auth';
+                } catch (error) {
+                    showError('Failed to sign out');
+                }
+            });
+
+            // Points adjustment buttons
+            document.querySelector('[data-action="decrease-points"]').addEventListener('click', () => {
+                const input = document.getElementById('pointsToBuy');
+                const newValue = Math.max(10, parseInt(input.value) - 10);
+                input.value = newValue;
+                updatePointsPrice(newValue);
+            });
+
+            document.querySelector('[data-action="increase-points"]').addEventListener('click', () => {
+                const input = document.getElementById('pointsToBuy');
+                const newValue = Math.min(5000, parseInt(input.value) + 10);
+                input.value = newValue;
+                updatePointsPrice(newValue);
+            });
+
+            // Points input change
+            document.getElementById('pointsToBuy').addEventListener('change', (e) => {
+                let value = parseInt(e.target.value);
+                if (isNaN(value)) value = 100;
+                value = Math.max(10, Math.min(5000, value));
+                e.target.value = value;
+                updatePointsPrice(value);
+            });
+
+            // Buy points button
+            document.getElementById('buyPointsBtn').addEventListener('click', startPointsCheckout);
         }
 
-        function loadPurchaseHistory() {
-            // Add code to load purchase history from Firestore
+        async function loadPurchaseHistory() {
+            const purchaseHistory = document.getElementById('purchaseHistory');
+            const modalPurchaseHistory = document.getElementById('modalPurchaseHistory');
+            
+            try {
+                const purchasesRef = firebase.firestore()
+                    .collection('users')
+                    .doc(currentUser.uid)
+                    .collection('purchases')
+                    .orderBy('timestamp', 'desc')
+                    .limit(5);
+
+                const snapshot = await purchasesRef.get();
+                
+                if (snapshot.empty) {
+                    const noHistoryMessage = '<div class="text-gray-500">No purchase history available</div>';
+                    purchaseHistory.innerHTML = noHistoryMessage;
+                    modalPurchaseHistory.innerHTML = noHistoryMessage;
+                    return;
+                }
+
+                const purchasesHTML = snapshot.docs.map(doc => {
+                    const purchase = doc.data();
+                    const date = purchase.timestamp?.toDate().toLocaleDateString() || 'N/A';
+                    const amount = ((purchase.amount || 0) / 100).toFixed(2);
+                    
+                    return `
+                        <div class="bg-gray-50 p-4 rounded-lg">
+                            <div class="flex justify-between items-center">
+                                <div>
+                                    <p class="font-medium">+${purchase.points} Points</p>
+                                    <p class="text-sm text-gray-500">${date}</p>
+                                </div>
+                                <p class="text-green-600 font-medium">$${amount}</p>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+
+                purchaseHistory.innerHTML = purchasesHTML;
+                modalPurchaseHistory.innerHTML = purchasesHTML;
+            } catch (error) {
+                console.error('Load purchase history error:', error);
+                const errorMessage = '<div class="text-red-500">Failed to load purchase history</div>';
+                purchaseHistory.innerHTML = errorMessage;
+                modalPurchaseHistory.innerHTML = errorMessage;
+            }
+        }
+
+        function updatePointsPrice(points) {
+            const price = (points * 0.10).toFixed(2);
+            document.getElementById('pointsPrice').textContent = price;
+        }
+
+        async function startPointsCheckout() {
+            const points = parseInt(document.getElementById('pointsToBuy').value);
+            const buyButton = document.getElementById('buyPointsBtn');
+            
+            if (points < 10 || points > 5000) {
+                showError('Points must be between 10 and 5000');
+                return;
+            }
+            
+            try {
+                buyButton.disabled = true;
+                buyButton.innerHTML = '<div class="loading-spinner mr-2"></div>Processing...';
+
+                const response = await fetch('/api/create-points-checkout', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        points,
+                        userId: currentUser.uid
+                    })
+                });
+
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(data.error || 'Failed to create checkout');
+                }
+
+                document.getElementById('upgradeModal').classList.add('hidden');
+                window.location.href = data.url;
+
+            } catch (error) {
+                console.error('Checkout error:', error);
+                showError(error.message || 'Failed to start checkout');
+                buyButton.disabled = false;
+                buyButton.innerHTML = 'Purchase Points';
+            }
         }
     </script>
 </body>
