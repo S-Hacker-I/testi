@@ -199,10 +199,9 @@
     </div>
 
     <script>
-        let currentUser = null;
         let userPoints = 0;
 
-        // Initialize Firebase first
+        // Initialize Firebase
         async function initializeFirebase() {
             try {
                 // Initialize Firebase if not already initialized
@@ -440,19 +439,21 @@
 
         function adjustPoints(amount) {
             const input = document.getElementById('pointsToBuy');
-            let newValue = parseInt(input.value) + amount;
-            
-            // Ensure within bounds (10-5000)
+            if (!input) return;
+            let currentValue = parseInt(input.value) || 10;
+            let newValue = currentValue + amount;
             newValue = Math.max(10, Math.min(5000, newValue));
-            
             input.value = newValue;
             updatePointsPrice();
         }
 
         function updatePointsPrice() {
-            const points = document.getElementById('pointsToBuy').value;
-            const price = (points * 0.10).toFixed(2); // $0.10 per point
-            document.getElementById('pointsPrice').textContent = price;
+            const points = parseInt(document.getElementById('pointsToBuy')?.value || 0);
+            const priceElement = document.getElementById('pointsPrice');
+            if (priceElement) {
+                const price = (points * 0.10).toFixed(2);
+                priceElement.textContent = price;
+            }
         }
 
         async function startPointsCheckout() {
@@ -460,13 +461,13 @@
             const pointsInput = document.getElementById('pointsToBuy');
             
             if (!buyButton || !pointsInput) {
+                console.error('Required elements not found');
                 showError('Something went wrong. Please refresh the page.');
                 return;
             }
 
             try {
-                const currentUser = firebase.auth().currentUser;
-                if (!currentUser) {
+                if (!firebase.auth().currentUser) {
                     showError('Please log in to purchase points');
                     return;
                 }
@@ -489,15 +490,20 @@
 
                 const response = await fetch('/api/create-points-checkout', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
                     body: JSON.stringify({
                         points,
-                        userId: currentUser.uid
+                        userId: firebase.auth().currentUser.uid
                     })
                 });
 
                 const data = await response.json();
-                if (!response.ok) throw new Error(data.error || 'Failed to create checkout session');
+
+                if (!response.ok) {
+                    throw new Error(data.error || 'Failed to create checkout session');
+                }
 
                 // Redirect to Stripe
                 window.location.href = data.url;
@@ -507,15 +513,148 @@
                 showError(error.message || 'Failed to start checkout');
                 
                 // Reset button state
-                if (buyButton) {
-                    buyButton.disabled = false;
-                    buyButton.innerHTML = originalContent;
+                buyButton.disabled = false;
+                buyButton.innerHTML = originalContent;
+            }
+        }
+
+        // Add success message handler
+        window.addEventListener('load', () => {
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.get('success') === 'true') {
+                const points = urlParams.get('points');
+                showSuccess(`Successfully purchased ${points || ''} points!`);
+                
+                // Clear URL parameters
+                window.history.replaceState({}, document.title, '/dashboard');
+            }
+        });
+
+        // Points management functions
+        function validatePoints(input) {
+            let value = parseInt(input.value);
+            if (isNaN(value) || !input.value) {
+                value = 10;
+            }
+            value = Math.max(10, Math.min(5000, value));
+            input.value = value;
+            updatePointsPrice();
+        }
+
+        // Single auth state change handler
+        firebase.auth().onAuthStateChanged((user) => {
+            if (user) {
+                initializeUserData();
+                setupPointsListener();
+                loadPurchaseHistory();
+            } else {
+                window.location.href = '/auth';
+            }
+        });
+
+        // Add this function to handle plan selection
+        async function handlePlanSelection(plan) {
+            try {
+                const response = await fetch('/api/create-checkout-session', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        plan,
+                        userId: firebase.auth().currentUser.uid
+                    })
+                });
+
+                if (!response.ok) throw new Error('Failed to create checkout session');
+                const data = await response.json();
+                
+                // Redirect to Stripe Checkout
+                window.location.href = data.url;
+            } catch (error) {
+                console.error('Plan selection error:', error);
+                showError('Failed to process plan selection');
+            }
+        }
+
+        // Add success message handler
+        window.addEventListener('load', () => {
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.get('success') === 'true') {
+                showSuccess('Payment successful! Your points have been added to your account.');
+            }
+        });
+
+        // Add this function to load purchase history
+        async function loadPurchaseHistory() {
+            if (!currentUser) return;
+
+            const purchaseHistory = document.getElementById('purchaseHistory');
+            if (!purchaseHistory) return;
+
+            try {
+                purchaseHistory.innerHTML = '<div class="text-gray-500">Loading purchase history...</div>';
+
+                const purchasesRef = firebase.firestore()
+                    .collection('users')
+                    .doc(currentUser.uid)
+                    .collection('purchases')
+                    .orderBy('timestamp', 'desc')
+                    .limit(5);
+
+                // Use real-time listener with cleanup
+                const unsubscribe = purchasesRef.onSnapshot((snapshot) => {
+                    if (!purchaseHistory) return;
+
+                    if (snapshot.empty) {
+                        purchaseHistory.innerHTML = '<div class="text-gray-500">No purchase history available</div>';
+                        return;
+                    }
+
+                    const purchasesHTML = snapshot.docs.map(doc => {
+                        const purchase = doc.data();
+                        const date = purchase.timestamp?.toDate().toLocaleDateString() || 'N/A';
+                        const amount = ((purchase.amount || 0) / 100).toFixed(2);
+                        
+                        return `
+                            <div class="bg-gray-50 p-4 rounded-lg">
+                                <div class="flex justify-between items-center">
+                                    <div>
+                                        <p class="font-medium">${purchase.points || 0} Points</p>
+                                        <p class="text-sm text-gray-500">${date}</p>
+                                    </div>
+                                    <p class="text-green-600 font-medium">$${amount}</p>
+                                </div>
+                            </div>
+                        `;
+                    }).join('');
+
+                    purchaseHistory.innerHTML = purchasesHTML;
+                }, (error) => {
+                    console.error('Purchase history error:', error);
+                    purchaseHistory.innerHTML = '<div class="text-red-500">Failed to load purchase history</div>';
+                });
+
+                // Cleanup listener on page unload
+                window.addEventListener('unload', () => unsubscribe());
+            } catch (error) {
+                console.error('Load purchase history error:', error);
+                if (purchaseHistory) {
+                    purchaseHistory.innerHTML = '<div class="text-red-500">Failed to load purchase history</div>';
                 }
             }
         }
 
-        // Initialize app
-        initializeFirebase();
+        // Call this function after Firebase initialization
+        firebase.auth().onAuthStateChanged((user) => {
+            if (user) {
+                initializeUserData();
+                setupPointsListener();
+                loadPurchaseHistory();
+            } else {
+                window.location.href = '/auth';
+            }
+        });
 
         // Update the error and success functions in the script
         function showNotification(message, type = 'success') {
@@ -707,255 +846,6 @@
             if (user) {
                 initializeUserData();
                 setupPointsListener();
-                loadPurchaseHistory();
-            } else {
-                window.location.href = '/auth';
-            }
-        });
-
-        // Add these functions to your script section
-        function validatePoints(input) {
-            let value = parseInt(input.value);
-            
-            // Handle non-numeric or empty input
-            if (isNaN(value) || !input.value) {
-                value = 10;
-            }
-            
-            // Enforce min/max bounds
-            value = Math.max(10, Math.min(5000, value));
-            input.value = value;
-            updatePointsPrice();
-        }
-
-        function updatePointsPrice() {
-            const points = parseInt(document.getElementById('pointsToBuy')?.value || 0);
-            const priceElement = document.getElementById('pointsPrice');
-            if (priceElement) {
-                priceElement.textContent = ((points * 0.10) || 0).toFixed(2);
-            }
-        }
-
-        async function startPointsCheckout() {
-            const buyButton = document.getElementById('buyPointsBtn');
-            const pointsInput = document.getElementById('pointsToBuy');
-            
-            if (!buyButton || !pointsInput) {
-                console.error('Required elements not found');
-                showError('Something went wrong. Please refresh the page.');
-                return;
-            }
-
-            try {
-                if (!firebase.auth().currentUser) {
-                    showError('Please log in to purchase points');
-                    return;
-                }
-
-                const points = parseInt(pointsInput.value);
-                if (isNaN(points) || points < 10 || points > 5000) {
-                    showError('Please enter between 10 and 5000 points');
-                    return;
-                }
-
-                // Show loading state
-                const originalContent = buyButton.innerHTML;
-                buyButton.disabled = true;
-                buyButton.innerHTML = `
-                    <div class="flex items-center justify-center">
-                        <div class="loading-spinner mr-2"></div>
-                        <span>Processing...</span>
-                    </div>
-                `;
-
-                const response = await fetch('/api/create-points-checkout', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        points,
-                        userId: firebase.auth().currentUser.uid
-                    })
-                });
-
-                const data = await response.json();
-
-                if (!response.ok) {
-                    throw new Error(data.error || 'Failed to create checkout session');
-                }
-
-                // Redirect to Stripe
-                window.location.href = data.url;
-
-            } catch (error) {
-                console.error('Checkout error:', error);
-                showError(error.message || 'Failed to start checkout');
-                
-                // Reset button state
-                buyButton.disabled = false;
-                buyButton.innerHTML = originalContent;
-            }
-        }
-
-        // Add success message handler
-        window.addEventListener('load', () => {
-            const urlParams = new URLSearchParams(window.location.search);
-            if (urlParams.get('success') === 'true') {
-                const points = urlParams.get('points');
-                showSuccess(`Successfully purchased ${points || ''} points!`);
-                
-                // Clear URL parameters
-                window.history.replaceState({}, document.title, '/dashboard');
-            }
-        });
-
-        // Update the points input validation
-        function validatePoints(input) {
-            let value = parseInt(input.value);
-            
-            // Handle non-numeric or empty input
-            if (isNaN(value) || !input.value) {
-                value = 10;
-            }
-            
-            // Enforce min/max bounds
-            value = Math.max(10, Math.min(5000, value));
-            input.value = value;
-            updatePointsPrice();
-        }
-
-        // Update the points adjustment function
-        function adjustPoints(amount) {
-            const input = document.getElementById('pointsToBuy');
-            if (!input) return;
-            
-            let currentValue = parseInt(input.value) || 10;
-            let newValue = currentValue + amount;
-            
-            // Enforce min/max bounds
-            newValue = Math.max(10, Math.min(5000, newValue));
-            input.value = newValue;
-            updatePointsPrice();
-        }
-
-        // Add these functions to your existing script section
-        let userPoints = 0;
-
-        function validatePoints(input) {
-            let value = parseInt(input.value);
-            
-            // Handle non-numeric or empty input
-            if (isNaN(value) || !input.value) {
-                value = 10;
-            }
-            
-            // Enforce min/max bounds
-            value = Math.max(10, Math.min(5000, value));
-            input.value = value;
-            updatePointsPrice();
-        }
-
-        function adjustPoints(amount) {
-            const input = document.getElementById('pointsToBuy');
-            if (!input) return;
-            
-            let currentValue = parseInt(input.value) || 10;
-            let newValue = currentValue + amount;
-            
-            // Enforce min/max bounds
-            newValue = Math.max(10, Math.min(5000, newValue));
-            input.value = newValue;
-            updatePointsPrice();
-        }
-
-        function updatePointsPrice() {
-            const points = parseInt(document.getElementById('pointsToBuy')?.value || 0);
-            const priceElement = document.getElementById('pointsPrice');
-            if (priceElement) {
-                const price = (points * 0.10).toFixed(2);
-                priceElement.textContent = price;
-            }
-        }
-
-        async function startPointsCheckout() {
-            const buyButton = document.getElementById('buyPointsBtn');
-            const pointsInput = document.getElementById('pointsToBuy');
-            
-            if (!buyButton || !pointsInput) {
-                console.error('Required elements not found');
-                showError('Something went wrong. Please refresh the page.');
-                return;
-            }
-
-            try {
-                if (!firebase.auth().currentUser) {
-                    showError('Please log in to purchase points');
-                    return;
-                }
-
-                const points = parseInt(pointsInput.value);
-                if (isNaN(points) || points < 10 || points > 5000) {
-                    showError('Please enter between 10 and 5000 points');
-                    return;
-                }
-
-                // Show loading state
-                const originalContent = buyButton.innerHTML;
-                buyButton.disabled = true;
-                buyButton.innerHTML = `
-                    <div class="flex items-center justify-center">
-                        <div class="loading-spinner mr-2"></div>
-                        <span>Processing...</span>
-                    </div>
-                `;
-
-                const response = await fetch('/api/create-points-checkout', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        points,
-                        userId: firebase.auth().currentUser.uid
-                    })
-                });
-
-                const data = await response.json();
-
-                if (!response.ok) {
-                    throw new Error(data.error || 'Failed to create checkout session');
-                }
-
-                // Redirect to Stripe
-                window.location.href = data.url;
-
-            } catch (error) {
-                console.error('Checkout error:', error);
-                showError(error.message || 'Failed to start checkout');
-                
-                // Reset button state
-                buyButton.disabled = false;
-                buyButton.innerHTML = originalContent;
-            }
-        }
-
-        // Add this to your existing Firebase auth state change handler
-        firebase.auth().onAuthStateChanged((user) => {
-            if (user) {
-                // Setup points listener
-                const userRef = firebase.firestore().collection('users').doc(user.uid);
-                userRef.onSnapshot((doc) => {
-                    if (doc.exists) {
-                        userPoints = doc.data().points || 0;
-                        const pointsDisplay = document.querySelector('#pointsDisplay .font-semibold');
-                        if (pointsDisplay) {
-                            pointsDisplay.textContent = userPoints;
-                        }
-                    }
-                });
-
-                // Load purchase history
                 loadPurchaseHistory();
             } else {
                 window.location.href = '/auth';
