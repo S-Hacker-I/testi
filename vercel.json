@@ -13,38 +13,11 @@
   "routes": [
     {
       "src": "/api/(.*)",
-      "dest": "server.js",
-      "methods": ["GET", "POST", "OPTIONS"],
-      "headers": {
-        "Access-Control-Allow-Origin": "https://testi-gilt.vercel.app",
-        "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type, Authorization"
-      }
-    },
-    {
-      "src": "/webhook",
-      "dest": "server.js",
-      "methods": ["POST"]
-    },
-    {
-      "src": "/",
-      "dest": "public/index.html"
-    },
-    {
-      "src": "/auth",
-      "dest": "public/auth.html"
-    },
-    {
-      "src": "/dashboard",
-      "dest": "public/dashboard.html"
-    },
-    {
-      "src": "/(.+\\.(?:js|css|png|jpg|gif|svg|ico))",
-      "dest": "public/$1"
+      "dest": "server.js"
     },
     {
       "src": "/(.*)",
-      "dest": "server.js"
+      "dest": "public/$1"
     }
   ]
 } 

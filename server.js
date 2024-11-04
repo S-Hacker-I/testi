@@ -261,12 +261,6 @@ app.post('/api/create-points-checkout', async (req, res) => {
             return res.status(400).json({ error: 'Points must be between 10 and 5000' });
         }
 
-        // Verify user exists
-        const userDoc = await admin.firestore().collection('users').doc(userId).get();
-        if (!userDoc.exists) {
-            return res.status(404).json({ error: 'User not found' });
-        }
-
         // Create checkout session
         const session = await stripe.checkout.sessions.create({
             payment_method_types: ['card'],
@@ -277,24 +271,26 @@ app.post('/api/create-points-checkout', async (req, res) => {
                         name: `${pointsNum} TikSave Points`,
                         description: 'Points for AI generations'
                     },
-                    unit_amount: 10,
+                    unit_amount: 10
                 },
                 quantity: pointsNum,
             }],
             mode: 'payment',
-            success_url: `${process.env.NODE_ENV === 'production' ? 'https://testi-gilt.vercel.app' : 'http://localhost:3000'}/dashboard?success=true&points=${pointsNum}`,
-            cancel_url: `${process.env.NODE_ENV === 'production' ? 'https://testi-gilt.vercel.app' : 'http://localhost:3000'}/dashboard`,
+            success_url: `${process.env.BASE_URL || 'https://testi-gilt.vercel.app'}/dashboard?success=true&points=${pointsNum}`,
+            cancel_url: `${process.env.BASE_URL || 'https://testi-gilt.vercel.app'}/dashboard`,
             metadata: {
                 userId,
                 points: pointsNum.toString()
             }
         });
 
-        console.log('Checkout session created:', session.id);
         res.json({ url: session.url });
     } catch (error) {
         console.error('Points checkout error:', error);
-        res.status(500).json({ error: 'Failed to create checkout session' });
+        res.status(500).json({ 
+            error: 'Failed to create checkout session',
+            details: error.message 
+        });
     }
 });
 
