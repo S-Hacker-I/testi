@@ -515,16 +515,32 @@
         }
 
         // Add success handler
-        window.addEventListener('load', () => {
+        window.addEventListener('load', async () => {
             const urlParams = new URLSearchParams(window.location.search);
             if (urlParams.get('success') === 'true') {
-                showSuccess('Payment successful! Your points will be added shortly.');
-                
-                // Refresh user data
+                try {
+                    // Wait for Firebase to initialize
+                    await new Promise(resolve => {
+                        const unsubscribe = firebase.auth().onAuthStateChanged((user) => {
+                            if (user) {
+                                unsubscribe();
+                                resolve();
+                            }
+                        });
+                    });
+
+                    showSuccess('Payment successful! Your points will be added shortly.');
+                    await initializeUserData();
+                    
+                    // Clear URL parameters
+                    window.history.replaceState({}, document.title, '/dashboard');
+                } catch (error) {
+                    console.error('Success handler error:', error);
+                    showError('Failed to load user data');
+                }
+            } else {
+                // Normal initialization
                 initializeUserData();
-                
-                // Clear URL parameters
-                window.history.replaceState({}, document.title, '/dashboard');
             }
         });
 
@@ -691,28 +707,49 @@
         // Update the user data initialization
         async function initializeUserData() {
             try {
+                // Wait for auth state to be ready
                 const user = firebase.auth().currentUser;
                 if (!user) {
-                    throw new Error('No authenticated user');
+                    // Wait for auth state change
+                    await new Promise((resolve, reject) => {
+                        const unsubscribe = firebase.auth().onAuthStateChanged((user) => {
+                            unsubscribe();
+                            if (user) {
+                                currentUser = user;
+                                resolve(user);
+                            } else {
+                                reject(new Error('No authenticated user'));
+                            }
+                        });
+                        
+                        // Timeout after 5 seconds
+                        setTimeout(() => reject(new Error('Auth timeout')), 5000);
+                    });
+                } else {
+                    currentUser = user;
                 }
 
-                const userDoc = await firebase.firestore().collection('users').doc(user.uid).get();
-                if (userDoc.exists) {
-                    const userData = userDoc.data();
-                    document.querySelector('#pointsDisplay .font-semibold').textContent = userData.points || 3;
-                } else {
-                    // Create user document if it doesn't exist
-                    await firebase.firestore().collection('users').doc(user.uid).set({
-                        email: user.email,
-                        points: 3,
-                        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-                        lastLogin: firebase.firestore.FieldValue.serverTimestamp()
-                    });
-                    document.querySelector('#pointsDisplay .font-semibold').textContent = '3';
+                // Load user data from Firestore
+                const doc = await firebase.firestore()
+                    .collection('users')
+                    .doc(currentUser.uid)
+                    .get();
+
+                if (doc.exists) {
+                    const userData = doc.data();
+                    userPoints = userData.points || 0;
+                    updatePointsDisplay();
                 }
+
+                // Setup real-time listeners
+                setupPointsListener();
+                loadPurchaseHistory();
+
             } catch (error) {
                 console.error('Load user data error:', error);
-                showError('Failed to load user data');
+                if (error.message === 'No authenticated user') {
+                    window.location.href = '/auth';
+                }
             }
         }
 

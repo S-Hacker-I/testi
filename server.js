@@ -50,18 +50,15 @@ app.post('/webhook', express.raw({type: 'application/json'}), async (request, re
             process.env.STRIPE_WEBHOOK_SECRET
         );
 
-        // Handle successful checkout
         if (event.type === 'checkout.session.completed') {
             const session = event.data.object;
             
             try {
                 const { userId, points, type } = session.metadata;
                 
-                if (type === 'points_purchase' && userId && points) {
-                    // Get a reference to the user's document
+                if (userId && points && (type === 'points_purchase' || type === 'plan_purchase')) {
                     const userRef = admin.firestore().collection('users').doc(userId);
                     
-                    // Use a transaction to ensure data consistency
                     await admin.firestore().runTransaction(async (transaction) => {
                         const userDoc = await transaction.get(userRef);
                         
@@ -69,7 +66,6 @@ app.post('/webhook', express.raw({type: 'application/json'}), async (request, re
                             throw new Error('User not found');
                         }
 
-                        // Calculate new points total
                         const currentPoints = userDoc.data().points || 0;
                         const newPoints = currentPoints + parseInt(points);
 
@@ -79,13 +75,14 @@ app.post('/webhook', express.raw({type: 'application/json'}), async (request, re
                             lastUpdated: admin.firestore.FieldValue.serverTimestamp()
                         });
 
-                        // Record the purchase
+                        // Record purchase
                         const purchaseRef = userRef.collection('purchases').doc();
                         transaction.set(purchaseRef, {
                             points: parseInt(points),
                             amount: session.amount_total,
                             timestamp: admin.firestore.FieldValue.serverTimestamp(),
                             paymentId: session.payment_intent,
+                            type: type,
                             status: 'completed'
                         });
                     });
