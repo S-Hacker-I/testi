@@ -36,29 +36,34 @@ app.post('/api/webhook',
         const sig = req.headers['stripe-signature'];
         
         try {
-            // Verify the webhook signature first
             event = stripe.webhooks.constructEvent(
                 req.body,
                 sig,
                 process.env.STRIPE_WEBHOOK_SECRET
             );
             
-            // Immediately acknowledge receipt to Stripe
+            // Immediately acknowledge receipt
             res.json({ received: true });
 
-            // Process the event asynchronously
+            // Handle the checkout.session.completed event
             if (event.type === 'checkout.session.completed') {
                 const session = event.data.object;
-                // Handle payment in background
-                handleSuccessfulPayment(session).catch(error => {
-                    console.error('Background payment processing failed:', error);
-                });
+                try {
+                    await handleSuccessfulPayment(session);
+                    console.log('Payment processed successfully');
+                } catch (error) {
+                    console.error('Payment processing failed:', error);
+                    // Store failed payment in separate collection
+                    await admin.firestore().collection('failedPayments').add({
+                        sessionId: session.id,
+                        error: error.message,
+                        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                        metadata: session.metadata
+                    });
+                }
             }
         } catch (err) {
-            console.error('❌ Webhook Error:', {
-                error: err.message,
-                stack: err.stack
-            });
+            console.error('Webhook Error:', err.message);
             return res.status(400).send(`Webhook Error: ${err.message}`);
         }
     }
@@ -162,77 +167,53 @@ app.post('/api/create-points-checkout', checkoutLimiter, async (req, res) => {
 
 // Improved handleSuccessfulPayment function
 async function handleSuccessfulPayment(session) {
-    const maxRetries = 5; // Increased from 3
-    let retryCount = 0;
-    const retryDelays = [1000, 2000, 4000, 8000, 16000]; // Explicit retry delays
+    const { userId, points } = session.metadata;
+    const pointsToAdd = parseInt(points, 10);
+    const db = admin.firestore();
+    
+    // Run in transaction to ensure data consistency
+    await db.runTransaction(async (transaction) => {
+        // Get user document
+        const userRef = db.collection('users').doc(userId);
+        const userDoc = await transaction.get(userRef);
 
-    while (retryCount < maxRetries) {
-        try {
-            const { userId, points } = session.metadata;
-
-            if (!userId || !points) {
-                throw new Error('Invalid metadata');
-            }
-
-            const userRef = admin.firestore().collection('users').doc(userId);
-            const purchaseRef = admin.firestore().collection('purchases').doc(); // Separate collection
-
-            await admin.firestore().runTransaction(async (transaction) => {
-                const userDoc = await transaction.get(userRef);
-                
-                if (!userDoc.exists) {
-                    throw new Error('User document not found');
-                }
-
-                const currentPoints = userDoc.data()?.points || 0;
-                const pointsToAdd = parseInt(points, 10);
-                const newPoints = currentPoints + pointsToAdd;
-
-                // Update user points
-                transaction.update(userRef, { 
-                    points: newPoints,
-                    lastUpdated: admin.firestore.FieldValue.serverTimestamp()
-                });
-
-                // Create purchase record with more detailed status
-                transaction.set(purchaseRef, {
-                    userId,
-                    points: pointsToAdd,
-                    amount: session.amount_total,
-                    timestamp: admin.firestore.FieldValue.serverTimestamp(),
-                    status: 'completed',
-                    sessionId: session.id,
-                    retryCount,
-                    processingDetails: {
-                        startTime: new Date().toISOString(),
-                        attempts: retryCount + 1
-                    }
-                });
-            });
-
-            return; // Success, exit retry loop
-        } catch (error) {
-            retryCount++;
-            console.error(`Attempt ${retryCount} failed:`, error);
-            
-            if (retryCount === maxRetries) {
-                // Store failed webhook in a separate collection
-                await admin.firestore().collection('failedWebhooks').add({
-                    sessionId: session.id,
-                    error: error.message,
-                    timestamp: admin.firestore.FieldValue.serverTimestamp(),
-                    metadata: session.metadata,
-                    attempts: retryCount,
-                    lastError: error.stack
-                });
-                
-                throw error;
-            }
-            
-            // Wait using explicit delay
-            await new Promise(resolve => setTimeout(resolve, retryDelays[retryCount - 1]));
+        if (!userDoc.exists) {
+            throw new Error('User not found');
         }
-    }
+
+        // Calculate new points total
+        const currentPoints = userDoc.data().points || 0;
+        const newPoints = currentPoints + pointsToAdd;
+
+        // Update user points
+        transaction.update(userRef, {
+            points: newPoints,
+            lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        // Create purchase record in user's purchases subcollection
+        const purchaseRef = userRef.collection('purchases').doc();
+        transaction.set(purchaseRef, {
+            points: pointsToAdd,
+            amount: session.amount_total,
+            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+            sessionId: session.id,
+            status: 'completed'
+        });
+
+        // Also store in main purchases collection for admin tracking
+        const mainPurchaseRef = db.collection('purchases').doc();
+        transaction.set(mainPurchaseRef, {
+            userId,
+            points: pointsToAdd,
+            amount: session.amount_total,
+            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+            sessionId: session.id,
+            status: 'completed'
+        });
+    });
+
+    console.log(`Successfully processed payment for user ${userId}: ${points} points`);
 }
 
 // Global error handler
