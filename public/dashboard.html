@@ -32,28 +32,19 @@
             measurementId: "G-ZQ2TB34NT9"
         };
 
+        let currentUser = null;
+        let userPoints = 0;
+
         // Initialize Firebase with persistence
         async function initializeFirebase() {
             try {
                 if (!firebase.apps.length) {
                     firebase.initializeApp(firebaseConfig);
-                    
-                    // Enable offline persistence
                     await firebase.firestore().enablePersistence()
                         .catch((err) => {
-                            if (err.code == 'failed-precondition') {
-                                console.warn('Multiple tabs open, persistence can only be enabled in one tab at a time.');
-                            } else if (err.code == 'unimplemented') {
-                                console.warn('The current browser doesn\'t support offline persistence');
-                            }
+                            console.warn('Persistence error:', err.code);
                         });
                 }
-                
-                // Set cache size
-                firebase.firestore().settings({
-                    cacheSizeBytes: firebase.firestore.CACHE_SIZE_UNLIMITED
-                });
-
                 return true;
             } catch (error) {
                 console.error('Firebase initialization error:', error);
@@ -503,8 +494,7 @@
             }
 
             try {
-                const user = firebase.auth().currentUser;
-                if (!user) {
+                if (!currentUser) {
                     showError('Please log in to purchase points');
                     return;
                 }
@@ -515,42 +505,29 @@
                     return;
                 }
 
-                // Show loading state
                 buyButton.disabled = true;
-                buyButton.innerHTML = `
-                    <div class="flex items-center justify-center">
-                        <div class="loading-spinner mr-2"></div>
-                        <span>Processing...</span>
-                    </div>
-                `;
+                buyButton.innerHTML = `<div class="loading-spinner mr-2"></div>Processing...`;
 
                 const response = await fetch('/api/create-points-checkout', {
                     method: 'POST',
-                    headers: { 
-                        'Content-Type': 'application/json'
-                    },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         points,
-                        userId: user.uid
+                        userId: currentUser.uid
                     })
                 });
 
                 const data = await response.json();
                 if (!response.ok) throw new Error(data.error || 'Failed to create checkout session');
 
-                // Hide modal and redirect
                 hideUpgradeModal();
                 window.location.href = data.url;
 
             } catch (error) {
                 console.error('Checkout error:', error);
                 showError(error.message || 'Failed to start checkout');
-                
-                // Reset button state
-                if (buyButton) {
-                    buyButton.disabled = false;
-                    buyButton.innerHTML = 'Purchase Points';
-                }
+                buyButton.disabled = false;
+                buyButton.innerHTML = 'Purchase Points';
             }
         }
 
@@ -968,19 +945,23 @@
         // Add this to your existing script
         function updateConnectionStatus() {
             const statusDiv = document.getElementById('connectionStatus');
+            if (!statusDiv) return;
             
-            firebase.firestore().enableNetwork().then(() => {
-                firebase.database().ref('.info/connected').on('value', (snap) => {
-                    if (snap.val() === true) {
-                        statusDiv.textContent = '🟢 Online';
-                        statusDiv.className = 'fixed top-16 right-4 z-50 p-2 rounded-lg text-sm bg-green-50 text-green-800';
-                    } else {
-                        statusDiv.textContent = '🔴 Offline';
-                        statusDiv.className = 'fixed top-16 right-4 z-50 p-2 rounded-lg text-sm bg-red-50 text-red-800';
-                    }
-                    statusDiv.classList.remove('hidden');
+            firebase.firestore().enableNetwork()
+                .then(() => {
+                    const unsubscribe = firebase.firestore()
+                        .collection('users')
+                        .doc(currentUser?.uid)
+                        .onSnapshot(() => {
+                            statusDiv.textContent = '🟢 Online';
+                            statusDiv.className = 'fixed top-16 right-4 z-50 p-2 rounded-lg text-sm bg-green-50 text-green-800';
+                        }, (error) => {
+                            statusDiv.textContent = '🔴 Offline';
+                            statusDiv.className = 'fixed top-16 right-4 z-50 p-2 rounded-lg text-sm bg-red-50 text-red-800';
+                        });
+
+                    window.addEventListener('unload', unsubscribe);
                 });
-            });
         }
 
         // Add this to your initialization
@@ -988,6 +969,30 @@
             initializeFirebase().then(() => {
                 updateConnectionStatus();
             });
+        });
+
+        // Single auth state handler
+        firebase.auth().onAuthStateChanged(async (user) => {
+            if (user) {
+                currentUser = user;
+                await initializeUserData();
+                setupPointsListener();
+            } else {
+                window.location.href = '/auth';
+            }
+        });
+
+        // Remove duplicate event listeners and consolidate into one
+        document.addEventListener('DOMContentLoaded', async () => {
+            await initializeFirebase();
+            updateConnectionStatus();
+            
+            // Handle success URL parameter
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.get('success') === 'true') {
+                showSuccess('Payment successful! Your points have been added to your account.');
+                window.history.replaceState({}, document.title, '/dashboard');
+            }
         });
     </script>
 </body>
