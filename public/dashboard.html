@@ -190,8 +190,9 @@
             </div>
 
             <!-- Purchase Button -->
-            <button onclick="startPointsCheckout()" 
-                class="w-full bg-purple-600 text-white px-4 py-3 rounded-lg hover:bg-purple-700 transition-colors font-medium mb-4">
+            <button id="buyPointsBtn" 
+                    onclick="startPointsCheckout()" 
+                    class="w-full bg-purple-600 text-white px-4 py-3 rounded-lg hover:bg-purple-700 transition-colors font-medium mb-4">
                 Purchase Points
             </button>
         </div>
@@ -455,36 +456,40 @@
         }
 
         async function startPointsCheckout() {
-            const buyButton = document.querySelector('#buyPointsBtn');
+            const buyButton = document.getElementById('buyPointsBtn');
             const pointsInput = document.getElementById('pointsToBuy');
             
+            if (!buyButton || !pointsInput) {
+                showError('Something went wrong. Please refresh the page.');
+                return;
+            }
+
             try {
+                const currentUser = firebase.auth().currentUser;
                 if (!currentUser) {
                     showError('Please log in to purchase points');
                     return;
                 }
 
-                const points = parseInt(pointsInput?.value || '0');
-                
+                const points = parseInt(pointsInput.value);
                 if (isNaN(points) || points < 10 || points > 5000) {
                     showError('Please enter between 10 and 5000 points');
                     return;
                 }
 
                 // Show loading state
+                const originalContent = buyButton.innerHTML;
                 buyButton.disabled = true;
                 buyButton.innerHTML = `
                     <div class="flex items-center justify-center">
                         <div class="loading-spinner mr-2"></div>
-                        Processing...
+                        <span>Processing...</span>
                     </div>
                 `;
 
                 const response = await fetch('/api/create-points-checkout', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         points,
                         userId: currentUser.uid
@@ -492,19 +497,20 @@
                 });
 
                 const data = await response.json();
-                
-                if (!response.ok) {
-                    throw new Error(data.error || 'Failed to create checkout session');
-                }
+                if (!response.ok) throw new Error(data.error || 'Failed to create checkout session');
 
+                // Redirect to Stripe
                 window.location.href = data.url;
+
             } catch (error) {
                 console.error('Checkout error:', error);
                 showError(error.message || 'Failed to start checkout');
                 
                 // Reset button state
-                buyButton.disabled = false;
-                buyButton.textContent = 'Buy Points';
+                if (buyButton) {
+                    buyButton.disabled = false;
+                    buyButton.innerHTML = originalContent;
+                }
             }
         }
 
@@ -731,35 +737,29 @@
         }
 
         async function startPointsCheckout() {
-            // Get elements first
             const buyButton = document.getElementById('buyPointsBtn');
             const pointsInput = document.getElementById('pointsToBuy');
             
-            // Validate elements exist
             if (!buyButton || !pointsInput) {
                 console.error('Required elements not found');
                 showError('Something went wrong. Please refresh the page.');
                 return;
             }
 
-            // Save original button state
-            const originalContent = buyButton.innerHTML;
-
             try {
-                // Validate user
                 if (!firebase.auth().currentUser) {
                     showError('Please log in to purchase points');
                     return;
                 }
 
-                // Validate points
                 const points = parseInt(pointsInput.value);
                 if (isNaN(points) || points < 10 || points > 5000) {
                     showError('Please enter between 10 and 5000 points');
                     return;
                 }
 
-                // Disable button and show loading state
+                // Show loading state
+                const originalContent = buyButton.innerHTML;
                 buyButton.disabled = true;
                 buyButton.innerHTML = `
                     <div class="flex items-center justify-center">
@@ -768,7 +768,6 @@
                     </div>
                 `;
 
-                // Make API request
                 const response = await fetch('/api/create-points-checkout', {
                     method: 'POST',
                     headers: {
@@ -794,10 +793,8 @@
                 showError(error.message || 'Failed to start checkout');
                 
                 // Reset button state
-                if (buyButton) {
-                    buyButton.disabled = false;
-                    buyButton.innerHTML = originalContent;
-                }
+                buyButton.disabled = false;
+                buyButton.innerHTML = originalContent;
             }
         }
 
@@ -841,6 +838,129 @@
             input.value = newValue;
             updatePointsPrice();
         }
+
+        // Add these functions to your existing script section
+        let userPoints = 0;
+
+        function validatePoints(input) {
+            let value = parseInt(input.value);
+            
+            // Handle non-numeric or empty input
+            if (isNaN(value) || !input.value) {
+                value = 10;
+            }
+            
+            // Enforce min/max bounds
+            value = Math.max(10, Math.min(5000, value));
+            input.value = value;
+            updatePointsPrice();
+        }
+
+        function adjustPoints(amount) {
+            const input = document.getElementById('pointsToBuy');
+            if (!input) return;
+            
+            let currentValue = parseInt(input.value) || 10;
+            let newValue = currentValue + amount;
+            
+            // Enforce min/max bounds
+            newValue = Math.max(10, Math.min(5000, newValue));
+            input.value = newValue;
+            updatePointsPrice();
+        }
+
+        function updatePointsPrice() {
+            const points = parseInt(document.getElementById('pointsToBuy')?.value || 0);
+            const priceElement = document.getElementById('pointsPrice');
+            if (priceElement) {
+                const price = (points * 0.10).toFixed(2);
+                priceElement.textContent = price;
+            }
+        }
+
+        async function startPointsCheckout() {
+            const buyButton = document.getElementById('buyPointsBtn');
+            const pointsInput = document.getElementById('pointsToBuy');
+            
+            if (!buyButton || !pointsInput) {
+                console.error('Required elements not found');
+                showError('Something went wrong. Please refresh the page.');
+                return;
+            }
+
+            try {
+                if (!firebase.auth().currentUser) {
+                    showError('Please log in to purchase points');
+                    return;
+                }
+
+                const points = parseInt(pointsInput.value);
+                if (isNaN(points) || points < 10 || points > 5000) {
+                    showError('Please enter between 10 and 5000 points');
+                    return;
+                }
+
+                // Show loading state
+                const originalContent = buyButton.innerHTML;
+                buyButton.disabled = true;
+                buyButton.innerHTML = `
+                    <div class="flex items-center justify-center">
+                        <div class="loading-spinner mr-2"></div>
+                        <span>Processing...</span>
+                    </div>
+                `;
+
+                const response = await fetch('/api/create-points-checkout', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        points,
+                        userId: firebase.auth().currentUser.uid
+                    })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || 'Failed to create checkout session');
+                }
+
+                // Redirect to Stripe
+                window.location.href = data.url;
+
+            } catch (error) {
+                console.error('Checkout error:', error);
+                showError(error.message || 'Failed to start checkout');
+                
+                // Reset button state
+                buyButton.disabled = false;
+                buyButton.innerHTML = originalContent;
+            }
+        }
+
+        // Add this to your existing Firebase auth state change handler
+        firebase.auth().onAuthStateChanged((user) => {
+            if (user) {
+                // Setup points listener
+                const userRef = firebase.firestore().collection('users').doc(user.uid);
+                userRef.onSnapshot((doc) => {
+                    if (doc.exists) {
+                        userPoints = doc.data().points || 0;
+                        const pointsDisplay = document.querySelector('#pointsDisplay .font-semibold');
+                        if (pointsDisplay) {
+                            pointsDisplay.textContent = userPoints;
+                        }
+                    }
+                });
+
+                // Load purchase history
+                loadPurchaseHistory();
+            } else {
+                window.location.href = '/auth';
+            }
+        });
     </script>
 </body>
 </html> 
