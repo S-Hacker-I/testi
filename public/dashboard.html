@@ -407,6 +407,7 @@
             
             if (sessionId && success === 'true') {
                 try {
+                    console.log('Checking payment status for session:', sessionId);
                     const response = await fetch(`/api/checkout-session/${sessionId}`);
                     const session = await response.json();
                     
@@ -419,9 +420,11 @@
                     }
                 } catch (error) {
                     console.error('Error checking payment status:', error);
+                    showError('Error verifying payment status');
+                } finally {
+                    // Clean up URL
+                    window.history.replaceState({}, document.title, '/dashboard');
                 }
-                // Clean up URL
-                window.history.replaceState({}, document.title, '/dashboard');
             }
         }
     </script>

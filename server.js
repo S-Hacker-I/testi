@@ -154,7 +154,7 @@ app.use((err, req, res, next) => {
     });
 });
 
-// Stripe webhook handler
+// Stripe webhook handler - Move this BEFORE the express.json() middleware
 app.post('/api/webhook', express.raw({type: 'application/json'}), async (req, res) => {
     const sig = req.headers['stripe-signature'];
     console.log('Webhook received');
@@ -174,6 +174,7 @@ app.post('/api/webhook', express.raw({type: 'application/json'}), async (req, re
 
             // Handle the successful payment
             await handleSuccessfulPayment(session);
+            console.log('Payment processed successfully');
         }
 
         res.json({received: true});
@@ -183,12 +184,12 @@ app.post('/api/webhook', express.raw({type: 'application/json'}), async (req, re
     }
 });
 
-// Function to handle successful payments
+// Function to handle successful payments - Update with better error handling
 async function handleSuccessfulPayment(session) {
     const { userId, points } = session.metadata;
     const db = admin.firestore();
     
-    console.log('Updating points for user:', userId, 'Points:', points);
+    console.log('Processing payment for:', { userId, points, sessionId: session.id });
 
     try {
         // Use a transaction to ensure data consistency
@@ -196,32 +197,41 @@ async function handleSuccessfulPayment(session) {
             const userRef = db.collection('users').doc(userId);
             const userDoc = await transaction.get(userRef);
 
-            // Calculate new points total
-            const currentPoints = userDoc.exists ? (userDoc.data().points || 0) : 0;
-            const pointsToAdd = parseInt(points);
-            const newTotal = currentPoints + pointsToAdd;
+            if (!userDoc.exists) {
+                console.log('Creating new user document');
+                transaction.set(userRef, {
+                    points: parseInt(points),
+                    created: admin.firestore.FieldValue.serverTimestamp(),
+                    lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+                });
+            } else {
+                console.log('Updating existing user document');
+                const currentPoints = userDoc.data().points || 0;
+                const pointsToAdd = parseInt(points);
+                const newTotal = currentPoints + pointsToAdd;
 
-            // Update user document
-            transaction.set(userRef, {
-                points: newTotal,
-                lastUpdated: admin.firestore.FieldValue.serverTimestamp()
-            }, { merge: true });
+                transaction.update(userRef, {
+                    points: newTotal,
+                    lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+                });
+            }
 
             // Create purchase record
             const purchaseRef = db.collection('purchases').doc();
             transaction.set(purchaseRef, {
                 userId: userId,
-                points: pointsToAdd,
+                points: parseInt(points),
                 amount: session.amount_total,
                 timestamp: admin.firestore.FieldValue.serverTimestamp(),
                 sessionId: session.id,
-                status: 'completed'
+                status: 'completed',
+                paymentIntent: session.payment_intent
             });
         });
 
-        console.log('Successfully updated points and created purchase record');
+        console.log('Transaction completed successfully');
     } catch (error) {
-        console.error('Error handling payment:', error);
+        console.error('Error in handleSuccessfulPayment:', error);
         throw error;
     }
 }
