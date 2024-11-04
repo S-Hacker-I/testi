@@ -22,47 +22,86 @@ admin.initializeApp({
     })
 });
 
-// Add this after admin.initializeApp()
-async function createRequiredIndexes() {
+// Add this function after Firebase initialization
+async function initializeFirestore() {
+    const db = admin.firestore();
+    
     try {
-        const db = admin.firestore();
+        // Create required collections
+        const collections = ['users', 'purchases', 'pointsTransactions', 'failedPayments'];
         
-        // Define the index configuration
-        const indexConfig = {
-            collectionGroup: 'purchases',
-            queryScope: 'COLLECTION',
-            fields: [
-                { fieldPath: 'userId', order: 'ASCENDING' },
-                { fieldPath: 'timestamp', order: 'DESCENDING' },
-                { fieldPath: '__name__', order: 'DESCENDING' }
-            ]
-        };
-
-        // Check if index exists
-        const indexes = await db.listIndexes();
-        const indexExists = indexes.some(index => {
-            if (index.queryScope !== indexConfig.queryScope) return false;
-            if (index.collectionGroup !== indexConfig.collectionGroup) return false;
+        for (const collectionName of collections) {
+            const collectionRef = db.collection(collectionName);
+            const snapshot = await collectionRef.limit(1).get();
             
-            // Compare fields
-            return JSON.stringify(index.fields) === JSON.stringify(indexConfig.fields);
-        });
-
-        if (!indexExists) {
-            console.log('Creating required Firestore index...');
-            await db.createIndex(indexConfig);
-            console.log('Index created successfully');
-        } else {
-            console.log('Required index already exists');
+            if (snapshot.empty) {
+                console.log(`Creating collection: ${collectionName}`);
+                const tempDoc = await collectionRef.add({
+                    _temp: true,
+                    createdAt: admin.firestore.FieldValue.serverTimestamp()
+                });
+                await tempDoc.delete();
+            }
         }
+
+        // Create required index
+        const indexFields = [
+            { fieldPath: 'userId', order: 'ASCENDING' },
+            { fieldPath: 'timestamp', order: 'DESCENDING' }
+        ];
+
+        try {
+            await db.collection('purchases').orderBy('userId').orderBy('timestamp', 'desc').limit(1).get();
+        } catch (error) {
+            if (error.code === 'failed-precondition') {
+                console.log('Creating required index...');
+                await admin.firestore().collection('purchases')
+                    .doc('_dummy')
+                    .set({
+                        userId: '_dummy',
+                        timestamp: admin.firestore.FieldValue.serverTimestamp()
+                    });
+                
+                // Wait for index creation
+                let indexCreated = false;
+                while (!indexCreated) {
+                    try {
+                        await db.collection('purchases')
+                            .orderBy('userId')
+                            .orderBy('timestamp', 'desc')
+                            .limit(1)
+                            .get();
+                        indexCreated = true;
+                        console.log('Index created successfully');
+                    } catch (e) {
+                        console.log('Waiting for index creation...');
+                        await new Promise(resolve => setTimeout(resolve, 5000));
+                    }
+                }
+            }
+        }
+
+        console.log('Firestore initialization completed');
     } catch (error) {
-        console.error('Error creating index:', error);
-        // Don't throw error, allow server to start anyway
+        console.error('Firestore initialization error:', error);
+        throw error;
     }
 }
 
-// Call the function
-createRequiredIndexes();
+// Update server startup
+const PORT = process.env.PORT || 3000;
+(async () => {
+    try {
+        await initializeFirestore();
+        
+        app.listen(PORT, () => {
+            console.log(`Server running on port ${PORT}`);
+        });
+    } catch (error) {
+        console.error('Failed to start server:', error);
+        process.exit(1);
+    }
+})();
 
 // Add this before your webhook endpoint
 app.post('/api/test-webhook', express.json(), async (req, res) => {
@@ -70,12 +109,16 @@ app.post('/api/test-webhook', express.json(), async (req, res) => {
     res.json({ received: true });
 });
 
-// Webhook handler - must be before any middleware
+// Webhook handler
 app.post('/api/webhook', 
     express.raw({type: 'application/json'}),
     async (req, res) => {
         const sig = req.headers['stripe-signature'];
-        
+        console.log('Webhook received:', {
+            signature: sig ? 'present' : 'missing',
+            body: req.body ? 'present' : 'missing'
+        });
+
         try {
             const event = stripe.webhooks.constructEvent(
                 req.body,
@@ -83,23 +126,36 @@ app.post('/api/webhook',
                 process.env.STRIPE_WEBHOOK_SECRET
             );
             
-            // Send immediate response to acknowledge receipt
+            console.log('Webhook event:', {
+                type: event.type,
+                id: event.id
+            });
+
+            // Send immediate response
             res.json({ received: true });
 
             if (event.type === 'checkout.session.completed') {
                 const session = event.data.object;
+                console.log('Processing checkout session:', {
+                    id: session.id,
+                    payment_status: session.payment_status
+                });
                 
                 if (session.payment_status === 'paid') {
                     try {
                         await handleSuccessfulPayment(session);
                         console.log('Payment processed successfully');
                     } catch (error) {
-                        console.error('Payment processing failed:', error);
-                        // Store failed payment
+                        console.error('Payment processing failed:', {
+                            error: error.message,
+                            stack: error.stack
+                        });
+                        
                         const db = admin.firestore();
                         await db.collection('failedPayments').add({
                             sessionId: session.id,
                             error: error.message,
+                            stack: error.stack,
                             timestamp: admin.firestore.FieldValue.serverTimestamp(),
                             metadata: session.metadata
                         });
@@ -107,7 +163,11 @@ app.post('/api/webhook',
                 }
             }
         } catch (err) {
-            console.error('Webhook Error:', err.message);
+            console.error('Webhook Error:', {
+                message: err.message,
+                stack: err.stack,
+                headers: req.headers
+            });
             return res.status(400).send(`Webhook Error: ${err.message}`);
         }
     }
@@ -296,22 +356,6 @@ app.use((err, req, res, next) => {
         message: process.env.NODE_ENV === 'development' ? err.message : undefined
     });
 });
-
-// Start the server
-const PORT = process.env.PORT || 3000;
-(async () => {
-    try {
-        // Wait for index creation
-        await createRequiredIndexes();
-        
-        app.listen(PORT, () => {
-            console.log(`Server running on port ${PORT}`);
-        });
-    } catch (error) {
-        console.error('Failed to start server:', error);
-        process.exit(1);
-    }
-})();
 
 // Add this endpoint to serve the publishable key to the client
 app.get('/api/config', (req, res) => {

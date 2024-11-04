@@ -285,45 +285,42 @@
             
             try {
                 const db = firebase.firestore();
-                const purchasesRef = db.collection('purchases')
+                
+                // First try to get purchases without ordering
+                const simpleQuery = db.collection('purchases')
                     .where('userId', '==', currentUser.uid)
-                    .orderBy('timestamp', 'desc')
                     .limit(5);
 
-                // Real-time listener for purchase history
-                purchasesRef.onSnapshot((snapshot) => {
-                    if (snapshot.empty) {
-                        purchaseHistory.innerHTML = '<div class="text-gray-500">No purchase history available</div>';
-                        return;
-                    }
+                const snapshot = await simpleQuery.get();
+                
+                if (snapshot.empty) {
+                    purchaseHistory.innerHTML = '<div class="text-gray-500">No purchase history available</div>';
+                    return;
+                }
 
-                    const purchasesHTML = snapshot.docs.map(doc => {
-                        const purchase = doc.data();
-                        const date = purchase.timestamp?.toDate().toLocaleDateString() || 'N/A';
-                        const amount = ((purchase.amount || 0) / 100).toFixed(2);
-                        
-                        return `
-                            <div class="bg-gray-50 p-4 rounded-lg">
-                                <div class="flex justify-between items-center">
-                                    <div>
-                                        <p class="font-medium">+${purchase.points} Points</p>
-                                        <p class="text-sm text-gray-500">${date}</p>
-                                    </div>
-                                    <p class="text-green-600 font-medium">$${amount}</p>
+                const purchasesHTML = snapshot.docs.map(doc => {
+                    const purchase = doc.data();
+                    const date = purchase.timestamp?.toDate().toLocaleDateString() || 'N/A';
+                    const amount = ((purchase.amount || 0) / 100).toFixed(2);
+                    
+                    return `
+                        <div class="bg-gray-50 p-4 rounded-lg">
+                            <div class="flex justify-between items-center">
+                                <div>
+                                    <p class="font-medium">+${purchase.points} Points</p>
+                                    <p class="text-sm text-gray-500">${date}</p>
                                 </div>
+                                <p class="text-green-600 font-medium">$${amount}</p>
                             </div>
-                        `;
-                    }).join('');
+                        </div>
+                    `;
+                }).join('');
 
-                    purchaseHistory.innerHTML = purchasesHTML;
-                }, (error) => {
-                    console.error('Purchase history error:', error);
-                    showError('Failed to load purchase history');
-                });
+                purchaseHistory.innerHTML = purchasesHTML;
 
             } catch (error) {
-                console.error('Load purchase history error:', error);
-                showError('Failed to load purchase history');
+                console.error('Purchase history error:', error);
+                purchaseHistory.innerHTML = '<div class="text-red-500">Failed to load purchase history</div>';
             }
         }
 
