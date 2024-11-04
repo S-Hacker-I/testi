@@ -22,6 +22,48 @@ admin.initializeApp({
     })
 });
 
+// Add this after admin.initializeApp()
+async function createRequiredIndexes() {
+    try {
+        const db = admin.firestore();
+        
+        // Define the index configuration
+        const indexConfig = {
+            collectionGroup: 'purchases',
+            queryScope: 'COLLECTION',
+            fields: [
+                { fieldPath: 'userId', order: 'ASCENDING' },
+                { fieldPath: 'timestamp', order: 'DESCENDING' },
+                { fieldPath: '__name__', order: 'DESCENDING' }
+            ]
+        };
+
+        // Check if index exists
+        const indexes = await db.listIndexes();
+        const indexExists = indexes.some(index => {
+            if (index.queryScope !== indexConfig.queryScope) return false;
+            if (index.collectionGroup !== indexConfig.collectionGroup) return false;
+            
+            // Compare fields
+            return JSON.stringify(index.fields) === JSON.stringify(indexConfig.fields);
+        });
+
+        if (!indexExists) {
+            console.log('Creating required Firestore index...');
+            await db.createIndex(indexConfig);
+            console.log('Index created successfully');
+        } else {
+            console.log('Required index already exists');
+        }
+    } catch (error) {
+        console.error('Error creating index:', error);
+        // Don't throw error, allow server to start anyway
+    }
+}
+
+// Call the function
+createRequiredIndexes();
+
 // Add this before your webhook endpoint
 app.post('/api/test-webhook', express.json(), async (req, res) => {
     console.log('🧪 Test webhook received:', req.body);
@@ -41,46 +83,29 @@ app.post('/api/webhook',
                 process.env.STRIPE_WEBHOOK_SECRET
             );
             
+            // Send immediate response to acknowledge receipt
+            res.json({ received: true });
+
             if (event.type === 'checkout.session.completed') {
                 const session = event.data.object;
                 
                 if (session.payment_status === 'paid') {
-                    const { userId, points } = session.metadata;
-                    const db = admin.firestore();
-                    
-                    // Update in transaction
-                    await db.runTransaction(async (transaction) => {
-                        const userRef = db.collection('users').doc(userId);
-                        const userDoc = await transaction.get(userRef);
-
-                        if (!userDoc.exists) {
-                            throw new Error('User not found');
-                        }
-
-                        const currentPoints = userDoc.data().points || 0;
-                        const newPoints = currentPoints + parseInt(points);
-
-                        // Update user points
-                        transaction.update(userRef, {
-                            points: newPoints,
-                            lastUpdated: admin.firestore.FieldValue.serverTimestamp()
-                        });
-
-                        // Create purchase record
-                        const purchaseRef = db.collection('purchases').doc();
-                        transaction.set(purchaseRef, {
-                            userId,
-                            points: parseInt(points),
-                            amount: session.amount_total,
-                            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                    try {
+                        await handleSuccessfulPayment(session);
+                        console.log('Payment processed successfully');
+                    } catch (error) {
+                        console.error('Payment processing failed:', error);
+                        // Store failed payment
+                        const db = admin.firestore();
+                        await db.collection('failedPayments').add({
                             sessionId: session.id,
-                            status: 'completed'
+                            error: error.message,
+                            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                            metadata: session.metadata
                         });
-                    });
+                    }
                 }
             }
-            
-            res.json({ received: true });
         } catch (err) {
             console.error('Webhook Error:', err.message);
             return res.status(400).send(`Webhook Error: ${err.message}`);
@@ -194,16 +219,24 @@ app.get('/api/checkout-session/:sessionId', async (req, res) => {
 
 // Improved handleSuccessfulPayment function
 async function handleSuccessfulPayment(session) {
-    console.log('Starting payment processing:', {
-        sessionId: session.id,
-        metadata: session.metadata
-    });
-
     const { userId, points } = session.metadata;
     const pointsToAdd = parseInt(points, 10);
     const db = admin.firestore();
     
     try {
+        // Create collections if they don't exist
+        const collections = ['users', 'purchases', 'pointsTransactions'];
+        await Promise.all(collections.map(async (collectionName) => {
+            const collectionRef = db.collection(collectionName);
+            const snapshot = await collectionRef.limit(1).get();
+            if (snapshot.empty) {
+                // Create a dummy document that we'll delete immediately
+                const dummyDoc = await collectionRef.add({ dummy: true });
+                await dummyDoc.delete();
+            }
+        }));
+
+        // Run transaction
         await db.runTransaction(async (transaction) => {
             console.log('Starting transaction for user:', userId);
             
@@ -211,50 +244,46 @@ async function handleSuccessfulPayment(session) {
             const userDoc = await transaction.get(userRef);
 
             if (!userDoc.exists) {
-                throw new Error(`User ${userId} not found`);
+                // Create user document if it doesn't exist
+                transaction.set(userRef, {
+                    points: pointsToAdd,
+                    created: admin.firestore.FieldValue.serverTimestamp(),
+                    lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+                });
+            } else {
+                const currentPoints = userDoc.data().points || 0;
+                transaction.update(userRef, {
+                    points: currentPoints + pointsToAdd,
+                    lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+                });
             }
 
-            const currentPoints = userDoc.data().points || 0;
-            const newPoints = currentPoints + pointsToAdd;
-
-            console.log('Updating points:', {
-                currentPoints,
-                pointsToAdd,
-                newPoints
-            });
-
-            // Update user points
-            transaction.update(userRef, {
-                points: newPoints,
-                lastUpdated: admin.firestore.FieldValue.serverTimestamp()
-            });
-
-            // Create purchase records
-            const purchaseData = {
+            // Create purchase record
+            const purchaseRef = db.collection('purchases').doc();
+            transaction.set(purchaseRef, {
+                userId,
                 points: pointsToAdd,
                 amount: session.amount_total,
                 timestamp: admin.firestore.FieldValue.serverTimestamp(),
                 sessionId: session.id,
-                status: 'completed'
-            };
-
-            transaction.set(userRef.collection('purchases').doc(), purchaseData);
-            transaction.set(db.collection('purchases').doc(), {
-                ...purchaseData,
-                userId
+                status: 'completed',
+                paymentIntent: session.payment_intent
             });
 
-            console.log('Transaction prepared successfully');
+            // Create points transaction record
+            const transactionRef = db.collection('pointsTransactions').doc();
+            transaction.set(transactionRef, {
+                userId,
+                points: pointsToAdd,
+                type: 'purchase',
+                timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                purchaseId: purchaseRef.id
+            });
         });
 
-        console.log('Payment processed successfully for session:', session.id);
+        console.log(`Successfully processed payment for user ${userId}: ${points} points`);
     } catch (error) {
-        console.error('Payment processing failed:', {
-            error: error.message,
-            stack: error.stack,
-            sessionId: session.id,
-            userId
-        });
+        console.error('Transaction failed:', error);
         throw error;
     }
 }
@@ -270,9 +299,19 @@ app.use((err, req, res, next) => {
 
 // Start the server
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-});
+(async () => {
+    try {
+        // Wait for index creation
+        await createRequiredIndexes();
+        
+        app.listen(PORT, () => {
+            console.log(`Server running on port ${PORT}`);
+        });
+    } catch (error) {
+        console.error('Failed to start server:', error);
+        process.exit(1);
+    }
+})();
 
 // Add this endpoint to serve the publishable key to the client
 app.get('/api/config', (req, res) => {

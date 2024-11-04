@@ -282,44 +282,45 @@
 
         async function loadPurchaseHistory() {
             const purchaseHistory = document.getElementById('purchaseHistory');
-            const modalPurchaseHistory = document.getElementById('modalPurchaseHistory');
             
             try {
-                const purchasesRef = firebase.firestore()
-                    .collection('purchases')
+                const db = firebase.firestore();
+                const purchasesRef = db.collection('purchases')
                     .where('userId', '==', currentUser.uid)
                     .orderBy('timestamp', 'desc')
                     .limit(5);
 
-                const snapshot = await purchasesRef.get();
-                
-                if (snapshot.empty) {
-                    const noHistoryMessage = '<div class="text-gray-500">No purchase history available</div>';
-                    purchaseHistory.innerHTML = noHistoryMessage;
-                    modalPurchaseHistory.innerHTML = noHistoryMessage;
-                    return;
-                }
+                // Real-time listener for purchase history
+                purchasesRef.onSnapshot((snapshot) => {
+                    if (snapshot.empty) {
+                        purchaseHistory.innerHTML = '<div class="text-gray-500">No purchase history available</div>';
+                        return;
+                    }
 
-                const purchasesHTML = snapshot.docs.map(doc => {
-                    const purchase = doc.data();
-                    const date = purchase.timestamp?.toDate().toLocaleDateString() || 'N/A';
-                    const amount = ((purchase.amount || 0) / 100).toFixed(2);
-                    
-                    return `
-                        <div class="bg-gray-50 p-4 rounded-lg">
-                            <div class="flex justify-between items-center">
-                                <div>
-                                    <p class="font-medium">+${purchase.points} Points</p>
-                                    <p class="text-sm text-gray-500">${date}</p>
+                    const purchasesHTML = snapshot.docs.map(doc => {
+                        const purchase = doc.data();
+                        const date = purchase.timestamp?.toDate().toLocaleDateString() || 'N/A';
+                        const amount = ((purchase.amount || 0) / 100).toFixed(2);
+                        
+                        return `
+                            <div class="bg-gray-50 p-4 rounded-lg">
+                                <div class="flex justify-between items-center">
+                                    <div>
+                                        <p class="font-medium">+${purchase.points} Points</p>
+                                        <p class="text-sm text-gray-500">${date}</p>
+                                    </div>
+                                    <p class="text-green-600 font-medium">$${amount}</p>
                                 </div>
-                                <p class="text-green-600 font-medium">$${amount}</p>
                             </div>
-                        </div>
-                    `;
-                }).join('');
+                        `;
+                    }).join('');
 
-                purchaseHistory.innerHTML = purchasesHTML;
-                modalPurchaseHistory.innerHTML = purchasesHTML;
+                    purchaseHistory.innerHTML = purchasesHTML;
+                }, (error) => {
+                    console.error('Purchase history error:', error);
+                    showError('Failed to load purchase history');
+                });
+
             } catch (error) {
                 console.error('Load purchase history error:', error);
                 showError('Failed to load purchase history');
