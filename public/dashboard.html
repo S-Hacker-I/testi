@@ -157,16 +157,24 @@
                 <label class="block text-sm font-medium text-gray-700 mb-2">
                     Number of Points (Min 10, Max 5,000)
                 </label>
-                <div class="flex items-center space-x-4">
-                    <button onclick="adjustPoints(-10)" class="bg-gray-100 px-3 py-2 rounded-lg hover:bg-gray-200">
+                <div class="flex items-center space-x-4 mb-6">
+                    <button onclick="adjustPoints(-10)" 
+                            class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300 transition-colors">
                         -10
                     </button>
-                    <input type="number" id="pointsToBuy" value="10" min="10" max="5000" step="10"
-                        class="w-full px-4 py-2 text-center bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                        onchange="updatePointsPrice()">
-                    <button onclick="adjustPoints(10)" class="bg-gray-100 px-3 py-2 rounded-lg hover:bg-gray-200">
+                    <input type="number" 
+                           id="pointsToBuy" 
+                           value="100" 
+                           min="10" 
+                           max="5000" 
+                           class="w-24 px-3 py-2 border rounded text-center"
+                           onchange="validatePoints(this)"
+                           oninput="validatePoints(this)">
+                    <button onclick="adjustPoints(10)" 
+                            class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300 transition-colors">
                         +10
                     </button>
+                    <span class="text-gray-600">$<span id="pointsPrice">10.00</span></span>
                 </div>
             </div>
 
@@ -252,8 +260,14 @@
 
         // Update points display
         function updatePointsDisplay() {
-            const pointsElement = document.querySelector('#pointsDisplay span');
-            pointsElement.textContent = userPoints;
+            try {
+                const pointsElement = document.querySelector('#pointsDisplay .font-semibold');
+                if (pointsElement) {
+                    pointsElement.textContent = userPoints || '0';
+                }
+            } catch (error) {
+                console.error('Failed to update points display:', error);
+            }
         }
 
         // Generate caption
@@ -695,12 +709,16 @@
 
         // Add these functions to your script section
         function validatePoints(input) {
-            const value = parseInt(input.value);
-            if (isNaN(value) || value < 10) {
-                input.value = 10;
-            } else if (value > 5000) {
-                input.value = 5000;
+            let value = parseInt(input.value);
+            
+            // Handle non-numeric or empty input
+            if (isNaN(value) || !input.value) {
+                value = 10;
             }
+            
+            // Enforce min/max bounds
+            value = Math.max(10, Math.min(5000, value));
+            input.value = value;
             updatePointsPrice();
         }
 
@@ -794,6 +812,35 @@
                 window.history.replaceState({}, document.title, '/dashboard');
             }
         });
+
+        // Update the points input validation
+        function validatePoints(input) {
+            let value = parseInt(input.value);
+            
+            // Handle non-numeric or empty input
+            if (isNaN(value) || !input.value) {
+                value = 10;
+            }
+            
+            // Enforce min/max bounds
+            value = Math.max(10, Math.min(5000, value));
+            input.value = value;
+            updatePointsPrice();
+        }
+
+        // Update the points adjustment function
+        function adjustPoints(amount) {
+            const input = document.getElementById('pointsToBuy');
+            if (!input) return;
+            
+            let currentValue = parseInt(input.value) || 10;
+            let newValue = currentValue + amount;
+            
+            // Enforce min/max bounds
+            newValue = Math.max(10, Math.min(5000, newValue));
+            input.value = newValue;
+            updatePointsPrice();
+        }
     </script>
 </body>
 </html> 
