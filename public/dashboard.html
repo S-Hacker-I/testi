@@ -167,6 +167,7 @@
         document.addEventListener('DOMContentLoaded', async () => {
             await initializeStripe();
             setupEventListeners();
+            checkPaymentStatus();
             
             const urlParams = new URLSearchParams(window.location.search);
             if (urlParams.get('success') === 'true') {
@@ -370,6 +371,26 @@
                 showError(error.message || 'Failed to start checkout');
                 buyButton.disabled = false;
                 buyButton.innerHTML = 'Purchase Points';
+            }
+        }
+
+        async function checkPaymentStatus() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const sessionId = urlParams.get('session_id');
+            
+            if (sessionId) {
+                try {
+                    const response = await fetch(`/api/checkout-session/${sessionId}`);
+                    const session = await response.json();
+                    
+                    if (session.payment_status === 'paid') {
+                        showSuccess('Payment successful! Your points will be added shortly.');
+                    }
+                } catch (error) {
+                    console.error('Error checking payment status:', error);
+                }
+                // Clean up URL
+                window.history.replaceState({}, document.title, '/dashboard');
             }
         }
     </script>
