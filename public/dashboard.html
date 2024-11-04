@@ -35,6 +35,20 @@
         // Initialize Firebase
         firebase.initializeApp(firebaseConfig);
     </script>
+    <style>
+        .loading-spinner {
+            border: 2px solid #f3f3f3;
+            border-radius: 50%;
+            border-top: 2px solid #ffffff;
+            width: 16px;
+            height: 16px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
 </head>
 <body class="bg-gray-50">
     <!-- Navigation -->
@@ -427,14 +441,16 @@
         }
 
         async function startPointsCheckout() {
+            const buyButton = document.querySelector('#buyPointsBtn');
+            const pointsInput = document.getElementById('pointsToBuy');
+            
             try {
                 if (!currentUser) {
                     showError('Please log in to purchase points');
                     return;
                 }
 
-                const pointsInput = document.getElementById('pointsToBuy');
-                const points = parseInt(pointsInput.value);
+                const points = parseInt(pointsInput?.value || '0');
                 
                 if (isNaN(points) || points < 10 || points > 5000) {
                     showError('Please enter between 10 and 5000 points');
@@ -442,10 +458,13 @@
                 }
 
                 // Show loading state
-                const buyButton = document.querySelector('#buyPointsBtn');
-                const originalText = buyButton.textContent;
                 buyButton.disabled = true;
-                buyButton.textContent = 'Processing...';
+                buyButton.innerHTML = `
+                    <div class="flex items-center justify-center">
+                        <div class="loading-spinner mr-2"></div>
+                        Processing...
+                    </div>
+                `;
 
                 const response = await fetch('/api/create-points-checkout', {
                     method: 'POST',
@@ -458,19 +477,18 @@
                     })
                 });
 
+                const data = await response.json();
+                
                 if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.error || 'Failed to create checkout session');
+                    throw new Error(data.error || 'Failed to create checkout session');
                 }
 
-                const { url } = await response.json();
-                window.location.href = url;
+                window.location.href = data.url;
             } catch (error) {
                 console.error('Checkout error:', error);
                 showError(error.message || 'Failed to start checkout');
                 
                 // Reset button state
-                const buyButton = document.querySelector('#buyPointsBtn');
                 buyButton.disabled = false;
                 buyButton.textContent = 'Buy Points';
             }
@@ -608,12 +626,11 @@
         async function loadPurchaseHistory() {
             if (!currentUser) return;
 
+            const purchaseHistory = document.getElementById('purchaseHistory');
+            if (!purchaseHistory) return;
+
             try {
-                const purchaseHistory = document.getElementById('purchaseHistory');
-                if (!purchaseHistory) {
-                    console.error('Purchase history element not found');
-                    return;
-                }
+                purchaseHistory.innerHTML = '<div class="text-gray-500">Loading purchase history...</div>';
 
                 const purchasesRef = firebase.firestore()
                     .collection('users')
@@ -622,23 +639,22 @@
                     .orderBy('timestamp', 'desc')
                     .limit(5);
 
-                purchasesRef.onSnapshot((snapshot) => {
-                    if (!purchaseHistory) return; // Double check element exists
+                // Use real-time listener with cleanup
+                const unsubscribe = purchasesRef.onSnapshot((snapshot) => {
+                    if (!purchaseHistory) return;
 
-                    purchaseHistory.innerHTML = '';
-                    
                     if (snapshot.empty) {
-                        purchaseHistory.innerHTML = '<p class="text-gray-500">No purchase history available</p>';
+                        purchaseHistory.innerHTML = '<div class="text-gray-500">No purchase history available</div>';
                         return;
                     }
 
-                    snapshot.forEach((doc) => {
+                    const purchasesHTML = snapshot.docs.map(doc => {
                         const purchase = doc.data();
                         const date = purchase.timestamp?.toDate().toLocaleDateString() || 'N/A';
                         const amount = ((purchase.amount || 0) / 100).toFixed(2);
                         
-                        purchaseHistory.innerHTML += `
-                            <div class="bg-white p-4 rounded-lg shadow-sm">
+                        return `
+                            <div class="bg-gray-50 p-4 rounded-lg">
                                 <div class="flex justify-between items-center">
                                     <div>
                                         <p class="font-medium">${purchase.points || 0} Points</p>
@@ -648,14 +664,21 @@
                                 </div>
                             </div>
                         `;
-                    });
+                    }).join('');
+
+                    purchaseHistory.innerHTML = purchasesHTML;
                 }, (error) => {
                     console.error('Purchase history error:', error);
-                    showError('Failed to load purchase history');
+                    purchaseHistory.innerHTML = '<div class="text-red-500">Failed to load purchase history</div>';
                 });
+
+                // Cleanup listener on page unload
+                window.addEventListener('unload', () => unsubscribe());
             } catch (error) {
                 console.error('Load purchase history error:', error);
-                showError('Failed to load purchase history');
+                if (purchaseHistory) {
+                    purchaseHistory.innerHTML = '<div class="text-red-500">Failed to load purchase history</div>';
+                }
             }
         }
 

@@ -20,27 +20,25 @@ const corsOptions = {
     optionsSuccessStatus: 200
 };
 
-// Serve static files from public directory
-app.use(express.static('public'));
+// Move these to the top, right after the initial requires
+app.use(cors(corsOptions));
+app.use(express.json({ limit: '1mb' }));
+app.use(helmet({
+    contentSecurityPolicy: false // Temporarily disable for development
+}));
+app.use(express.static('public', {
+    maxAge: '1h' // Cache static files for 1 hour
+}));
 
-// Route handlers for clean URLs
-app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public/index.html'));
+// Optimize rate limiting
+const limiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 100,
+    standardHeaders: true,
+    legacyHeaders: false,
 });
 
-app.get('/index', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public/index.html'));
-});
-
-app.get('/auth', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public/auth.html'));
-});
-
-app.get('/dashboard', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public/dashboard.html'));
-});
-
-// Special handling for Stripe webhook
+// Special handling for Stripe webhook - must be before other middleware
 app.post('/webhook', express.raw({type: 'application/json'}), async (request, response) => {
     const sig = request.headers['stripe-signature'];
     let event;
@@ -97,23 +95,22 @@ app.post('/webhook', express.raw({type: 'application/json'}), async (request, re
     }
 });
 
-// Then add the regular middleware
-app.use(cors(corsOptions));
-app.use(express.json());
-app.use(helmet());
-
-// Rate limiting should come after other middleware
-const limiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: 100
+// Route handlers for clean URLs
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public/index.html'));
 });
-app.use(limiter);
 
-const apiLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: 50
+app.get('/index', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public/index.html'));
 });
-app.use('/api/', apiLimiter);
+
+app.get('/auth', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public/auth.html'));
+});
+
+app.get('/dashboard', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public/dashboard.html'));
+});
 
 // API endpoints
 app.post('/api/create-checkout-session', async (req, res) => {
