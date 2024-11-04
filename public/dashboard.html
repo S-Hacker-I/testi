@@ -199,6 +199,7 @@
     </div>
 
     <script>
+        let currentUser = null;
         let userPoints = 0;
 
         // Initialize Firebase
@@ -206,15 +207,7 @@
             try {
                 // Initialize Firebase if not already initialized
                 if (!firebase.apps.length) {
-                    firebase.initializeApp({
-                        apiKey: "AIzaSyCmToewamZs5HVBMpWWnAnlafjolZdWJK8",
-                        authDomain: "test-d4c13.firebaseapp.com",
-                        projectId: "test-d4c13",
-                        storageBucket: "test-d4c13.appspot.com",
-                        messagingSenderId: "771743673319",
-                        appId: "1:771743673319:web:61e563fa2f5f98a6beeb42",
-                        measurementId: "G-ZQ2TB34NT9"
-                    });
+                    firebase.initializeApp(firebaseConfig);
                 }
 
                 // Wait for auth state to be ready
@@ -229,7 +222,7 @@
                     });
                 });
 
-                // Initialize other features
+                // Initialize other features after auth is ready
                 await initializeUserData();
                 setupPointsListener();
                 loadPurchaseHistory();
@@ -355,14 +348,17 @@
         // Update user points in Firestore
         async function updateUserPoints() {
             try {
+                if (!firebase.auth().currentUser) return;
+                
                 await firebase.firestore()
                     .collection('users')
-                    .doc(currentUser.uid)
+                    .doc(firebase.auth().currentUser.uid)
                     .update({
                         points: userPoints
                     });
             } catch (error) {
                 console.error('Update points error:', error);
+                showError('Failed to update points');
             }
         }
 
@@ -543,6 +539,7 @@
 
         // Single auth state change handler
         firebase.auth().onAuthStateChanged((user) => {
+            currentUser = user;
             if (user) {
                 initializeUserData();
                 setupPointsListener();
@@ -587,7 +584,7 @@
 
         // Add this function to load purchase history
         async function loadPurchaseHistory() {
-            if (!currentUser) return;
+            if (!firebase.auth().currentUser) return;
 
             const purchaseHistory = document.getElementById('purchaseHistory');
             if (!purchaseHistory) return;
@@ -597,12 +594,11 @@
 
                 const purchasesRef = firebase.firestore()
                     .collection('users')
-                    .doc(currentUser.uid)
+                    .doc(firebase.auth().currentUser.uid)
                     .collection('purchases')
                     .orderBy('timestamp', 'desc')
                     .limit(5);
 
-                // Use real-time listener with cleanup
                 const unsubscribe = purchasesRef.onSnapshot((snapshot) => {
                     if (!purchaseHistory) return;
 
@@ -783,7 +779,7 @@
 
         // Add this function to load purchase history
         async function loadPurchaseHistory() {
-            if (!currentUser) return;
+            if (!firebase.auth().currentUser) return;
 
             const purchaseHistory = document.getElementById('purchaseHistory');
             if (!purchaseHistory) return;
@@ -793,12 +789,11 @@
 
                 const purchasesRef = firebase.firestore()
                     .collection('users')
-                    .doc(currentUser.uid)
+                    .doc(firebase.auth().currentUser.uid)
                     .collection('purchases')
                     .orderBy('timestamp', 'desc')
                     .limit(5);
 
-                // Use real-time listener with cleanup
                 const unsubscribe = purchasesRef.onSnapshot((snapshot) => {
                     if (!purchaseHistory) return;
 
@@ -851,6 +846,9 @@
                 window.location.href = '/auth';
             }
         });
+
+        // Call initialization when the page loads
+        document.addEventListener('DOMContentLoaded', initializeFirebase);
     </script>
 </body>
 </html> 
