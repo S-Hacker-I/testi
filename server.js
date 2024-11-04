@@ -10,6 +10,7 @@ const app = express();
 // Basic middleware
 app.use(cors());
 app.use(express.json());
+app.use(express.raw({ type: 'application/json' }));
 app.use(express.static('public'));
 
 // Initialize Firebase Admin
@@ -71,7 +72,75 @@ app.get('/auth', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'auth.html'));
 });
 
-// Error handling middleware
+// Add this before your routes
+app.use((req, res, next) => {
+    console.log(`${req.method} ${req.path}`, {
+        body: req.body,
+        query: req.query
+    });
+    next();
+});
+
+// Create points checkout session
+app.post('/api/create-points-checkout', async (req, res) => {
+    console.log('Checkout endpoint called');
+    
+    try {
+        const { points, userId, email } = req.body;
+        
+        console.log('Request body:', { points, userId, email });
+
+        if (!points || !userId || points < 10 || points > 5000) {
+            return res.status(400).json({ 
+                error: 'Invalid points amount or missing user ID' 
+            });
+        }
+
+        const session = await stripe.checkout.sessions.create({
+            payment_method_types: ['card'],
+            line_items: [{
+                price_data: {
+                    currency: 'usd',
+                    product_data: {
+                        name: `${points} Points`,
+                        description: `Purchase ${points} points for your account`
+                    },
+                    unit_amount: points * 10 // $0.10 per point
+                },
+                quantity: 1
+            }],
+            mode: 'payment',
+            success_url: `${process.env.BASE_URL}/dashboard?success=true&session_id={CHECKOUT_SESSION_ID}`,
+            cancel_url: `${process.env.BASE_URL}/dashboard?canceled=true`,
+            customer_email: email,
+            metadata: {
+                userId,
+                points: points.toString()
+            }
+        });
+
+        console.log('Session created:', session.id);
+        res.json({ url: session.url });
+        
+    } catch (error) {
+        console.error('Checkout error:', error);
+        res.status(500).json({ 
+            error: error.message || 'Failed to create checkout session' 
+        });
+    }
+});
+
+// Add success endpoint to verify payment
+app.get('/api/checkout-session/:sessionId', async (req, res) => {
+    try {
+        const session = await stripe.checkout.sessions.retrieve(req.params.sessionId);
+        res.json(session);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Add this after your routes
 app.use((err, req, res, next) => {
     console.error('Server error:', err);
     res.status(500).json({

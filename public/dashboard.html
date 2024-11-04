@@ -364,9 +364,14 @@
                 buyButton.disabled = true;
                 buyButton.innerHTML = '<div class="loading-spinner mr-2"></div>Processing...';
 
+                console.log('Starting checkout for points:', points);
+
                 const response = await fetch('/api/create-points-checkout', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
+                    },
                     body: JSON.stringify({
                         points,
                         userId: currentUser.uid,
@@ -374,14 +379,26 @@
                     })
                 });
 
-                const { url } = await response.json();
+                console.log('Response status:', response.status);
                 
-                // Redirect to Stripe checkout
-                window.location.href = url;
+                const data = await response.json();
+                console.log('Response data:', data);
+
+                if (!response.ok) {
+                    throw new Error(data.error || 'Failed to create checkout session');
+                }
+
+                if (!data.url) {
+                    throw new Error('No checkout URL received');
+                }
+
+                console.log('Redirecting to checkout:', data.url);
+                window.location.href = data.url;
 
             } catch (error) {
                 console.error('Checkout error:', error);
-                showError('Failed to start checkout');
+                showError(error.message || 'Failed to start checkout');
+            } finally {
                 buyButton.disabled = false;
                 buyButton.innerHTML = 'Purchase Points';
             }
