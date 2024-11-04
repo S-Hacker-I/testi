@@ -3,10 +3,15 @@
 .env.*
 
 # Service account files
-serviceAccountKey.json
 serviceAccount.json
-
-# Other sensitive files
+serviceAccountKey.json
 **/firebase-admin-*.json
 
-node_modules/ 
+# Dependencies
+node_modules/
+
+# Logs
+*.log
+
+# Local development
+.DS_Store
