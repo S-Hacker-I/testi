@@ -285,11 +285,9 @@
             const modalPurchaseHistory = document.getElementById('modalPurchaseHistory');
             
             try {
-                // Get user's purchase subcollection
                 const purchasesRef = firebase.firestore()
-                    .collection('users')
-                    .doc(currentUser.uid)
                     .collection('purchases')
+                    .where('userId', '==', currentUser.uid)
                     .orderBy('timestamp', 'desc')
                     .limit(5);
 
@@ -324,9 +322,7 @@
                 modalPurchaseHistory.innerHTML = purchasesHTML;
             } catch (error) {
                 console.error('Load purchase history error:', error);
-                const errorMessage = '<div class="text-red-500">Failed to load purchase history</div>';
-                purchaseHistory.innerHTML = errorMessage;
-                modalPurchaseHistory.innerHTML = errorMessage;
+                showError('Failed to load purchase history');
             }
         }
 
@@ -348,23 +344,27 @@
                 buyButton.disabled = true;
                 buyButton.innerHTML = '<div class="loading-spinner mr-2"></div>Processing...';
 
+                // Create checkout session
                 const response = await fetch('/api/create-points-checkout', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         points,
-                        userId: currentUser.uid
+                        userId: currentUser.uid,
+                        email: currentUser.email // Add user's email for Stripe checkout
                     })
                 });
 
-                const data = await response.json();
+                const { sessionId } = await response.json();
                 
-                if (!response.ok) {
-                    throw new Error(data.error || 'Failed to create checkout');
-                }
+                // Redirect to Stripe checkout
+                const result = await stripe.redirectToCheckout({
+                    sessionId: sessionId
+                });
 
-                document.getElementById('upgradeModal').classList.add('hidden');
-                window.location.href = data.url;
+                if (result.error) {
+                    throw new Error(result.error.message);
+                }
 
             } catch (error) {
                 console.error('Checkout error:', error);

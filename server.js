@@ -28,116 +28,65 @@ app.post('/api/test-webhook', express.json(), async (req, res) => {
     res.json({ received: true });
 });
 
-// Webhook handler - place this before any middleware
+// Webhook handler - must be before any middleware
 app.post('/api/webhook', 
     express.raw({type: 'application/json'}),
     async (req, res) => {
         const sig = req.headers['stripe-signature'];
-        let event;
-
+        
         try {
-            event = stripe.webhooks.constructEvent(
+            const event = stripe.webhooks.constructEvent(
                 req.body,
                 sig,
                 process.env.STRIPE_WEBHOOK_SECRET
             );
-        } catch (err) {
-            console.error(`⚠️  Webhook signature verification failed:`, err.message);
-            return res.status(400).send(`Webhook Error: ${err.message}`);
-        }
-
-        // Handle the event
-        switch (event.type) {
-            case 'checkout.session.completed':
+            
+            if (event.type === 'checkout.session.completed') {
                 const session = event.data.object;
                 
-                // Make sure payment is paid
                 if (session.payment_status === 'paid') {
-                    try {
-                        await fulfillOrder(session);
-                        res.json({ received: true });
-                    } catch (error) {
-                        console.error('Error fulfilling order:', error);
-                        // Store failed payment for retry
-                        await storeFailedPayment(session, error);
-                        res.status(500).json({ error: 'Error fulfilling order' });
-                    }
+                    const { userId, points } = session.metadata;
+                    const db = admin.firestore();
+                    
+                    // Update in transaction
+                    await db.runTransaction(async (transaction) => {
+                        const userRef = db.collection('users').doc(userId);
+                        const userDoc = await transaction.get(userRef);
+
+                        if (!userDoc.exists) {
+                            throw new Error('User not found');
+                        }
+
+                        const currentPoints = userDoc.data().points || 0;
+                        const newPoints = currentPoints + parseInt(points);
+
+                        // Update user points
+                        transaction.update(userRef, {
+                            points: newPoints,
+                            lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+                        });
+
+                        // Create purchase record
+                        const purchaseRef = db.collection('purchases').doc();
+                        transaction.set(purchaseRef, {
+                            userId,
+                            points: parseInt(points),
+                            amount: session.amount_total,
+                            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                            sessionId: session.id,
+                            status: 'completed'
+                        });
+                    });
                 }
-                break;
-                
-            default:
-                console.log(`Unhandled event type ${event.type}`);
+            }
+            
+            res.json({ received: true });
+        } catch (err) {
+            console.error('Webhook Error:', err.message);
+            return res.status(400).send(`Webhook Error: ${err.message}`);
         }
     }
 );
-
-// Function to store failed payments
-async function storeFailedPayment(session, error) {
-    try {
-        await admin.firestore().collection('failedPayments').add({
-            sessionId: session.id,
-            userId: session.metadata.userId,
-            points: parseInt(session.metadata.points),
-            error: error.message,
-            timestamp: admin.firestore.FieldValue.serverTimestamp(),
-            paymentIntent: session.payment_intent,
-            amount: session.amount_total
-        });
-    } catch (err) {
-        console.error('Error storing failed payment:', err);
-    }
-}
-
-// Function to fulfill the order
-async function fulfillOrder(session) {
-    const { userId, points } = session.metadata;
-    const pointsToAdd = parseInt(points);
-    const db = admin.firestore();
-
-    // Reference both user and purchase documents
-    const userRef = db.collection('users').doc(userId);
-    const purchaseRef = db.collection('purchases').doc();
-    const userPurchaseRef = userRef.collection('purchases').doc();
-
-    // Run as a transaction
-    await db.runTransaction(async (transaction) => {
-        const userDoc = await transaction.get(userRef);
-        
-        if (!userDoc.exists) {
-            throw new Error('User not found');
-        }
-
-        // Calculate new points total
-        const currentPoints = userDoc.data().points || 0;
-        const newPoints = currentPoints + pointsToAdd;
-
-        // Prepare purchase data
-        const purchaseData = {
-            userId,
-            points: pointsToAdd,
-            amount: session.amount_total,
-            timestamp: admin.firestore.FieldValue.serverTimestamp(),
-            sessionId: session.id,
-            paymentIntent: session.payment_intent,
-            status: 'completed'
-        };
-
-        // Update user points
-        transaction.update(userRef, {
-            points: newPoints,
-            lastUpdated: admin.firestore.FieldValue.serverTimestamp()
-        });
-
-        // Store purchase in main purchases collection
-        transaction.set(purchaseRef, purchaseData);
-
-        // Store purchase in user's purchases subcollection
-        transaction.set(userPurchaseRef, {
-            ...purchaseData,
-            userPoints: newPoints // Include final point total
-        });
-    });
-}
 
 // Other middleware
 app.use(express.json());
@@ -197,39 +146,38 @@ app.get('/auth', (req, res) => {
 // Create points checkout session
 app.post('/api/create-points-checkout', async (req, res) => {
     try {
-        const { points, userId } = req.body;
+        const { points, userId, email } = req.body;
 
         if (!points || !userId || points < 10 || points > 5000) {
             return res.status(400).json({ error: 'Invalid points amount' });
         }
 
-        // Create a Stripe checkout session
         const session = await stripe.checkout.sessions.create({
             payment_method_types: ['card'],
             line_items: [{
                 price_data: {
                     currency: 'usd',
                     product_data: {
-                        name: `${points} Points Package`,
-                        description: `Purchase ${points} points for TikSave`
+                        name: `${points} Points`,
+                        description: `Purchase ${points} points for your account`
                     },
                     unit_amount: points * 10 // $0.10 per point
                 },
                 quantity: 1
             }],
             mode: 'payment',
-            success_url: `${process.env.BASE_URL}/dashboard?session_id={CHECKOUT_SESSION_ID}`,
+            success_url: `${process.env.BASE_URL}/dashboard?success=true&session_id={CHECKOUT_SESSION_ID}`,
             cancel_url: `${process.env.BASE_URL}/dashboard?canceled=true`,
+            customer_email: email,
             metadata: {
                 userId,
                 points: points.toString()
-            },
-            client_reference_id: userId // Add this for additional reference
+            }
         });
 
-        res.json({ url: session.url });
+        res.json({ sessionId: session.id });
     } catch (error) {
-        console.error('Checkout error:', error);
+        console.error('Create checkout error:', error);
         res.status(500).json({ error: 'Failed to create checkout session' });
     }
 });
