@@ -28,8 +28,12 @@
       "dest": "public/dashboard.html"
     },
     {
-      "src": "/(.*)",
+      "src": "/(.+\\.(?:js|css|png|jpg|gif|svg|ico))",
       "dest": "public/$1"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "server.js"
     }
   ]
 } 

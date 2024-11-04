@@ -151,26 +151,27 @@
     <script>
         let currentUser = null;
 
+        // Firebase configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyCmToewamZs5HVBMpWWnAnlafjolZdWJK8",
+            authDomain: "test-d4c13.firebaseapp.com",
+            projectId: "test-d4c13",
+            storageBucket: "test-d4c13.appspot.com",
+            messagingSenderId: "771743673319",
+            appId: "1:771743673319:web:61e563fa2f5f98a6beeb42",
+            measurementId: "G-ZQ2TB34NT9"
+        };
+
         // Initialize Firebase
-        async function initializeFirebase() {
-            try {
-                const response = await fetch('/api/firebase-config');
-                if (!response.ok) throw new Error('Failed to load Firebase configuration');
-                const firebaseConfig = await response.json();
-                firebase.initializeApp(firebaseConfig);
-                
-                // Check if user is already logged in
-                firebase.auth().onAuthStateChanged((user) => {
-                    if (user) {
-                        currentUser = user;
-                        window.location.href = '/dashboard';
-                    }
-                });
-            } catch (error) {
-                showError('Failed to initialize application');
-                console.error('Firebase initialization error:', error);
+        firebase.initializeApp(firebaseConfig);
+
+        // Check if user is already logged in
+        firebase.auth().onAuthStateChanged((user) => {
+            if (user) {
+                currentUser = user;
+                window.location.href = '/dashboard';
             }
-        }
+        });
 
         // Handle Login
         async function handleLogin(event) {
@@ -347,9 +348,6 @@
         function showSuccess(message) {
             showNotification(message, 'success');
         }
-
-        // Initialize
-        initializeFirebase();
 
         // Handle URL parameters
         const urlParams = new URLSearchParams(window.location.search);

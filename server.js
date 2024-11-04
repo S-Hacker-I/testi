@@ -7,16 +7,16 @@ const { HfInference } = require('@huggingface/inference');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const admin = require('firebase-admin');
-const serviceAccount = require('./serviceAccount.json');
 
 const app = express();
 const hf = new HfInference(process.env.HUGGINGFACE_TOKEN);
 
 const corsOptions = {
     origin: process.env.NODE_ENV === 'production' 
-        ? ['https://testi-gilt.vercel.app/'] // Add your production domain
+        ? ['https://testi-gilt.vercel.app', 'https://testi-gilt.vercel.app/'] 
         : ['http://localhost:3000'],
-    optionsSuccessStatus: 200
+    optionsSuccessStatus: 200,
+    credentials: true
 };
 
 app.use(cors(corsOptions));
@@ -135,8 +135,8 @@ app.post('/api/create-points-checkout', async (req, res) => {
                 quantity: 1,
             }],
             mode: 'payment',
-            success_url: `${process.env.NODE_ENV === 'production' ? 'https://yourdomain.com' : 'http://localhost:3000'}/dashboard?points=${points}`,
-            cancel_url: `${process.env.NODE_ENV === 'production' ? 'https://yourdomain.com' : 'http://localhost:3000'}/dashboard`,
+            success_url: `${process.env.NODE_ENV === 'production' ? 'https://testi-gilt.vercel.app' : 'http://localhost:3000'}/dashboard?points=${points}`,
+            cancel_url: `${process.env.NODE_ENV === 'production' ? 'https://testi-gilt.vercel.app' : 'http://localhost:3000'}/dashboard`,
             metadata: {
                 userId,
                 points,
