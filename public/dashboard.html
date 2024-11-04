@@ -32,8 +32,35 @@
             measurementId: "G-ZQ2TB34NT9"
         };
 
-        // Initialize Firebase
-        firebase.initializeApp(firebaseConfig);
+        // Initialize Firebase with persistence
+        async function initializeFirebase() {
+            try {
+                if (!firebase.apps.length) {
+                    firebase.initializeApp(firebaseConfig);
+                    
+                    // Enable offline persistence
+                    await firebase.firestore().enablePersistence()
+                        .catch((err) => {
+                            if (err.code == 'failed-precondition') {
+                                console.warn('Multiple tabs open, persistence can only be enabled in one tab at a time.');
+                            } else if (err.code == 'unimplemented') {
+                                console.warn('The current browser doesn\'t support offline persistence');
+                            }
+                        });
+                }
+                
+                // Set cache size
+                firebase.firestore().settings({
+                    cacheSizeBytes: firebase.firestore.CACHE_SIZE_UNLIMITED
+                });
+
+                return true;
+            } catch (error) {
+                console.error('Firebase initialization error:', error);
+                showError('Failed to initialize Firebase');
+                return false;
+            }
+        }
     </script>
     <style>
         .loading-spinner {
@@ -76,6 +103,10 @@
 
     <!-- Add this right after the nav section -->
     <div id="notifications" class="fixed top-20 right-4 z-50 space-y-4"></div>
+
+    <!-- Add this right after the nav section -->
+    <div id="connectionStatus" class="fixed top-16 right-4 z-50 p-2 rounded-lg text-sm hidden">
+    </div>
 
     <!-- Main Content -->
     <div class="max-w-4xl mx-auto px-4 pt-24 pb-12">
@@ -427,6 +458,16 @@
         // Error handling
         function showError(message) {
             showNotification(message, 'error');
+            
+            // If it's a connection error, show offline indicator
+            if (message.includes('offline') || message.includes('connection')) {
+                const statusDiv = document.getElementById('connectionStatus');
+                if (statusDiv) {
+                    statusDiv.textContent = '🔴 Offline';
+                    statusDiv.className = 'fixed top-16 right-4 z-50 p-2 rounded-lg text-sm bg-red-50 text-red-800';
+                    statusDiv.classList.remove('hidden');
+                }
+            }
         }
 
         function showSuccess(message) {
@@ -706,10 +747,15 @@
         // Update the user data initialization
         async function initializeUserData() {
             try {
+                // Wait for Firebase to initialize
+                const initialized = await initializeFirebase();
+                if (!initialized) {
+                    throw new Error('Firebase failed to initialize');
+                }
+
                 // Wait for auth state to be ready
                 const user = firebase.auth().currentUser;
                 if (!user) {
-                    // Wait for auth state change
                     await new Promise((resolve, reject) => {
                         const unsubscribe = firebase.auth().onAuthStateChanged((user) => {
                             unsubscribe();
@@ -721,18 +767,21 @@
                             }
                         });
                         
-                        // Timeout after 5 seconds
-                        setTimeout(() => reject(new Error('Auth timeout')), 5000);
+                        setTimeout(() => reject(new Error('Auth timeout')), 10000);
                     });
                 } else {
                     currentUser = user;
                 }
 
-                // Load user data from Firestore
+                // Load user data with offline support
                 const doc = await firebase.firestore()
                     .collection('users')
                     .doc(currentUser.uid)
-                    .get();
+                    .get({ source: 'cache' })
+                    .catch(() => firebase.firestore()
+                        .collection('users')
+                        .doc(currentUser.uid)
+                        .get({ source: 'server' }));
 
                 if (doc.exists) {
                     const userData = doc.data();
@@ -740,14 +789,34 @@
                     updatePointsDisplay();
                 }
 
-                // Setup real-time listeners
+                // Setup real-time listeners with offline support
                 setupPointsListener();
                 loadPurchaseHistory();
 
             } catch (error) {
                 console.error('Load user data error:', error);
+                
                 if (error.message === 'No authenticated user') {
                     window.location.href = '/auth';
+                } else {
+                    showError('Failed to load user data. Please check your internet connection.');
+                    
+                    // Try to load cached data
+                    try {
+                        const cachedDoc = await firebase.firestore()
+                            .collection('users')
+                            .doc(currentUser?.uid)
+                            .get({ source: 'cache' });
+                        
+                        if (cachedDoc.exists) {
+                            const userData = cachedDoc.data();
+                            userPoints = userData.points || 0;
+                            updatePointsDisplay();
+                            showNotification('Using cached data (offline mode)', 'warning');
+                        }
+                    } catch (cacheError) {
+                        console.error('Cache load error:', cacheError);
+                    }
                 }
             }
         }
@@ -895,6 +964,31 @@
 
         // Call initialization when the page loads
         document.addEventListener('DOMContentLoaded', initializeFirebase);
+
+        // Add this to your existing script
+        function updateConnectionStatus() {
+            const statusDiv = document.getElementById('connectionStatus');
+            
+            firebase.firestore().enableNetwork().then(() => {
+                firebase.database().ref('.info/connected').on('value', (snap) => {
+                    if (snap.val() === true) {
+                        statusDiv.textContent = '🟢 Online';
+                        statusDiv.className = 'fixed top-16 right-4 z-50 p-2 rounded-lg text-sm bg-green-50 text-green-800';
+                    } else {
+                        statusDiv.textContent = '🔴 Offline';
+                        statusDiv.className = 'fixed top-16 right-4 z-50 p-2 rounded-lg text-sm bg-red-50 text-red-800';
+                    }
+                    statusDiv.classList.remove('hidden');
+                });
+            });
+        }
+
+        // Add this to your initialization
+        document.addEventListener('DOMContentLoaded', () => {
+            initializeFirebase().then(() => {
+                updateConnectionStatus();
+            });
+        });
     </script>
 </body>
-</html> 
+</html>  
