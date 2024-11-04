@@ -240,54 +240,75 @@ app.post('/api/create-points-checkout', async (req, res) => {
     try {
         const { points, userId } = req.body;
         
-        if (!userId) {
-            return res.status(400).json({ error: 'User ID is required' });
+        // Validate required fields
+        if (!userId || !points) {
+            return res.status(400).json({ 
+                error: 'Missing required fields',
+                details: 'Both userId and points are required'
+            });
         }
         
         // Validate user exists
-        const userDoc = await admin.firestore().collection('users').doc(userId).get();
+        const userRef = admin.firestore().collection('users').doc(userId);
+        const userDoc = await userRef.get();
+        
         if (!userDoc.exists) {
-            return res.status(404).json({ error: 'User not found' });
+            return res.status(404).json({ 
+                error: 'User not found',
+                details: 'The specified user does not exist'
+            });
         }
         
         // Validate points amount
         const pointsNum = parseInt(points);
         if (isNaN(pointsNum) || pointsNum < 10 || pointsNum > 5000) {
-            return res.status(400).json({ error: 'Points must be between 10 and 5000' });
+            return res.status(400).json({ 
+                error: 'Invalid points amount',
+                details: 'Points must be between 10 and 5000'
+            });
         }
 
         // Calculate price ($0.10 per point)
         const unitAmount = 10; // $0.10 in cents
         const amount = pointsNum * unitAmount;
 
-        const session = await stripe.checkout.sessions.create({
-            payment_method_types: ['card'],
-            line_items: [{
-                price_data: {
-                    currency: 'usd',
-                    product_data: {
-                        name: `${pointsNum} TikSave Points`,
-                        description: 'Points for AI generations'
+        // Create Stripe session with error handling
+        try {
+            const session = await stripe.checkout.sessions.create({
+                payment_method_types: ['card'],
+                line_items: [{
+                    price_data: {
+                        currency: 'usd',
+                        product_data: {
+                            name: `${pointsNum} TikSave Points`,
+                            description: 'Points for AI generations'
+                        },
+                        unit_amount: unitAmount,
                     },
-                    unit_amount: unitAmount,
-                },
-                quantity: pointsNum,
-            }],
-            mode: 'payment',
-            success_url: `${process.env.NODE_ENV === 'production' ? 'https://testi-gilt.vercel.app' : 'http://localhost:3000'}/dashboard?success=true&points=${pointsNum}`,
-            cancel_url: `${process.env.NODE_ENV === 'production' ? 'https://testi-gilt.vercel.app' : 'http://localhost:3000'}/dashboard`,
-            metadata: {
-                userId,
-                points: pointsNum.toString(),
-                type: 'points_purchase'
-            }
-        });
+                    quantity: pointsNum,
+                }],
+                mode: 'payment',
+                success_url: `${process.env.NODE_ENV === 'production' ? 'https://testi-gilt.vercel.app' : 'http://localhost:3000'}/dashboard?success=true&points=${pointsNum}`,
+                cancel_url: `${process.env.NODE_ENV === 'production' ? 'https://testi-gilt.vercel.app' : 'http://localhost:3000'}/dashboard`,
+                metadata: {
+                    userId,
+                    points: pointsNum.toString(),
+                    type: 'points_purchase'
+                }
+            });
 
-        res.json({ url: session.url });
+            res.json({ url: session.url });
+        } catch (stripeError) {
+            console.error('Stripe session creation error:', stripeError);
+            return res.status(500).json({
+                error: 'Payment processing error',
+                details: stripeError.message
+            });
+        }
     } catch (error) {
         console.error('Points checkout error:', error);
         res.status(500).json({ 
-            error: 'Failed to create checkout session',
+            error: 'Server error',
             details: error.message 
         });
     }

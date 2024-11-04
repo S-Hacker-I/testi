@@ -692,6 +692,108 @@
                 window.location.href = '/auth';
             }
         });
+
+        // Add these functions to your script section
+        function validatePoints(input) {
+            const value = parseInt(input.value);
+            if (isNaN(value) || value < 10) {
+                input.value = 10;
+            } else if (value > 5000) {
+                input.value = 5000;
+            }
+            updatePointsPrice();
+        }
+
+        function updatePointsPrice() {
+            const points = parseInt(document.getElementById('pointsToBuy')?.value || 0);
+            const priceElement = document.getElementById('pointsPrice');
+            if (priceElement) {
+                priceElement.textContent = ((points * 0.10) || 0).toFixed(2);
+            }
+        }
+
+        async function startPointsCheckout() {
+            // Get elements first
+            const buyButton = document.getElementById('buyPointsBtn');
+            const pointsInput = document.getElementById('pointsToBuy');
+            
+            // Validate elements exist
+            if (!buyButton || !pointsInput) {
+                console.error('Required elements not found');
+                showError('Something went wrong. Please refresh the page.');
+                return;
+            }
+
+            // Save original button state
+            const originalContent = buyButton.innerHTML;
+
+            try {
+                // Validate user
+                if (!firebase.auth().currentUser) {
+                    showError('Please log in to purchase points');
+                    return;
+                }
+
+                // Validate points
+                const points = parseInt(pointsInput.value);
+                if (isNaN(points) || points < 10 || points > 5000) {
+                    showError('Please enter between 10 and 5000 points');
+                    return;
+                }
+
+                // Disable button and show loading state
+                buyButton.disabled = true;
+                buyButton.innerHTML = `
+                    <div class="flex items-center justify-center">
+                        <div class="loading-spinner mr-2"></div>
+                        <span>Processing...</span>
+                    </div>
+                `;
+
+                // Make API request
+                const response = await fetch('/api/create-points-checkout', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        points,
+                        userId: firebase.auth().currentUser.uid
+                    })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || 'Failed to create checkout session');
+                }
+
+                // Redirect to Stripe
+                window.location.href = data.url;
+
+            } catch (error) {
+                console.error('Checkout error:', error);
+                showError(error.message || 'Failed to start checkout');
+                
+                // Reset button state
+                if (buyButton) {
+                    buyButton.disabled = false;
+                    buyButton.innerHTML = originalContent;
+                }
+            }
+        }
+
+        // Add success message handler
+        window.addEventListener('load', () => {
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.get('success') === 'true') {
+                const points = urlParams.get('points');
+                showSuccess(`Successfully purchased ${points || ''} points!`);
+                
+                // Clear URL parameters
+                window.history.replaceState({}, document.title, '/dashboard');
+            }
+        });
     </script>
 </body>
 </html> 
