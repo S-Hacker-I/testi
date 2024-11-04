@@ -229,10 +229,10 @@ app.post('/api/create-points-checkout', async (req, res) => {
             }
         });
 
-        res.json({ sessionId: session.id });
+        res.json({ url: session.url });
     } catch (error) {
         console.error('Create checkout error:', error);
-        res.status(500).json({ error: 'Failed to create checkout session' });
+        res.status(500).json({ error: error.message });
     }
 });
 
@@ -296,16 +296,22 @@ async function handleSuccessfulPayment(session) {
 app.use((err, req, res, next) => {
     console.error('Server error:', err);
     res.status(500).json({
-        error: 'Internal server error',
-        message: process.env.NODE_ENV === 'development' ? err.message : undefined
+        error: err.message || 'Internal server error'
     });
 });
 
 // Add this endpoint to serve the publishable key to the client
 app.get('/api/config', (req, res) => {
-    res.json({
-        stripePublishableKey: process.env.STRIPE_PUBLISHABLE_KEY
-    });
+    try {
+        if (!process.env.STRIPE_PUBLISHABLE_KEY) {
+            throw new Error('Stripe publishable key not configured');
+        }
+        res.json({
+            stripePublishableKey: process.env.STRIPE_PUBLISHABLE_KEY
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
 });
 
 // Add this endpoint to verify webhook configuration

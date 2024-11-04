@@ -144,11 +144,17 @@
         async function initializeStripe() {
             try {
                 const response = await fetch('/api/config');
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
                 const config = await response.json();
+                if (!config.stripePublishableKey) {
+                    throw new Error('Stripe publishable key not found');
+                }
                 stripe = Stripe(config.stripePublishableKey);
             } catch (error) {
                 console.error('Failed to initialize Stripe:', error);
-                showError('Failed to initialize payment system');
+                showError('Failed to initialize payment system. Please try again later.');
             }
         }
 
@@ -285,37 +291,47 @@
             
             try {
                 const db = firebase.firestore();
+                // Simplified query without complex ordering
                 const purchasesRef = db.collection('purchases')
                     .where('userId', '==', currentUser.uid)
-                    .orderBy('timestamp', 'desc')
                     .limit(5);
 
-                const snapshot = await purchasesRef.get();
-                
-                if (snapshot.empty) {
-                    purchaseHistory.innerHTML = '<div class="text-gray-500">No purchase history available</div>';
-                    return;
-                }
+                // Create a real-time listener
+                purchasesRef.onSnapshot((snapshot) => {
+                    if (snapshot.empty) {
+                        purchaseHistory.innerHTML = '<div class="text-gray-500">No purchase history available</div>';
+                        return;
+                    }
 
-                const purchasesHTML = snapshot.docs.map(doc => {
-                    const purchase = doc.data();
-                    const date = purchase.timestamp?.toDate().toLocaleDateString() || 'N/A';
-                    const amount = ((purchase.amount || 0) / 100).toFixed(2);
-                    
-                    return `
-                        <div class="bg-gray-50 p-4 rounded-lg">
-                            <div class="flex justify-between items-center">
-                                <div>
-                                    <p class="font-medium">+${purchase.points} Points</p>
-                                    <p class="text-sm text-gray-500">${date}</p>
+                    // Sort the documents in memory
+                    const docs = snapshot.docs.sort((a, b) => {
+                        return b.data().timestamp?.toMillis() - a.data().timestamp?.toMillis();
+                    });
+
+                    const purchasesHTML = docs.map(doc => {
+                        const purchase = doc.data();
+                        const date = purchase.timestamp?.toDate().toLocaleDateString() || 'N/A';
+                        const amount = ((purchase.amount || 0) / 100).toFixed(2);
+                        
+                        return `
+                            <div class="bg-gray-50 p-4 rounded-lg">
+                                <div class="flex justify-between items-center">
+                                    <div>
+                                        <p class="font-medium">+${purchase.points} Points</p>
+                                        <p class="text-sm text-gray-500">${date}</p>
+                                    </div>
+                                    <p class="text-green-600 font-medium">$${amount}</p>
                                 </div>
-                                <p class="text-green-600 font-medium">$${amount}</p>
                             </div>
-                        </div>
-                    `;
-                }).join('');
+                        `;
+                    }).join('');
 
-                purchaseHistory.innerHTML = purchasesHTML;
+                    purchaseHistory.innerHTML = purchasesHTML;
+                }, (error) => {
+                    console.error('Purchase history error:', error);
+                    purchaseHistory.innerHTML = '<div class="text-red-500">Failed to load purchase history</div>';
+                });
+
             } catch (error) {
                 console.error('Purchase history error:', error);
                 purchaseHistory.innerHTML = '<div class="text-red-500">Failed to load purchase history</div>';
