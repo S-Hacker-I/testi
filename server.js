@@ -125,7 +125,7 @@ app.post('/api/create-points-checkout', checkoutLimiter, async (req, res) => {
     }
 });
 
-// Modify the webhook endpoint to better handle the payment completion
+// Move webhook endpoint BEFORE express.json() middleware
 app.post('/api/webhook', 
     express.raw({type: 'application/json'}), 
     async (req, res) => {
@@ -138,9 +138,11 @@ app.post('/api/webhook',
                 process.env.STRIPE_WEBHOOK_SECRET
             );
 
-            // Handle successful checkout
+            console.log('Webhook received:', event.type);
+
             if (event.type === 'checkout.session.completed') {
                 const session = event.data.object;
+                console.log('Processing payment for session:', session.id);
                 await handleSuccessfulPayment(session);
                 console.log(`Payment successful for user ${session.metadata.userId}`);
             }
@@ -148,6 +150,7 @@ app.post('/api/webhook',
             res.json({ received: true });
         } catch (err) {
             console.error('Webhook error:', err);
+            console.error('Request body:', req.body);
             return res.status(400).send(`Webhook Error: ${err.message}`);
         }
     }
@@ -164,6 +167,7 @@ async function handleSuccessfulPayment(session) {
     const userRef = admin.firestore().collection('users').doc(userId);
     
     try {
+        // Use a transaction for atomic updates
         await admin.firestore().runTransaction(async (transaction) => {
             const userDoc = await transaction.get(userRef);
             
@@ -175,14 +179,14 @@ async function handleSuccessfulPayment(session) {
             const newPoints = currentPoints + parseInt(points);
 
             // Update user points
-            transaction.update(userRef, { 
+            await transaction.update(userRef, { 
                 points: newPoints,
                 lastUpdated: admin.firestore.FieldValue.serverTimestamp()
             });
 
-            // Record purchase transaction
+            // Create purchases collection and add document
             const purchaseRef = userRef.collection('purchases').doc();
-            transaction.set(purchaseRef, {
+            await transaction.set(purchaseRef, {
                 points: parseInt(points),
                 amount: session.amount_total,
                 timestamp: admin.firestore.FieldValue.serverTimestamp(),
@@ -196,7 +200,7 @@ async function handleSuccessfulPayment(session) {
         console.log(`Successfully updated points for user ${userId}: +${points} points`);
     } catch (error) {
         console.error('Transaction failed:', error);
-        throw error; // Re-throw to be caught by webhook handler
+        throw error;
     }
 }
 

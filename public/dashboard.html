@@ -380,8 +380,12 @@
                     }).join('');
 
                     purchaseHistory.innerHTML = purchasesHTML;
+                }, (error) => {
+                    console.error('Purchase history listener error:', error);
+                    purchaseHistory.innerHTML = '<div class="text-red-500">Failed to load purchase history</div>';
                 });
 
+                // Cleanup listener on page unload
                 window.addEventListener('unload', () => unsubscribe());
             } catch (error) {
                 console.error('Load purchase history error:', error);
