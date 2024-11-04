@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TikSave - Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="icon" type="image/png" href="https://img.icons8.com/fluency/48/tiktok.png">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    <script src="https://js.stripe.com/v3/"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+    </style>
+    <script>
+        const stripe = Stripe('pk_test_51Q29viG4174RoWzOFy40ibq4i4afBFB8qbuOwlCIcnVFt8MvbrGFt24Q1cS5Q68EC3etAbbtTQYYCcSXydQbCAWb00QzOqnnGG');
+    </script>
+</head>
+<body class="bg-gray-50">
+    <!-- Navigation -->
+    <nav class="bg-white shadow-sm fixed w-full top-0 z-50">
+        <div class="max-w-6xl mx-auto px-4">
+            <div class="flex justify-between items-center h-16">
+                <div class="flex items-center space-x-2">
+                    <img src="https://img.icons8.com/fluency/48/tiktok.png" alt="TikSave Logo" class="h-8 w-8">
+                    <span class="text-2xl font-bold text-purple-600">TikSave</span>
+                </div>
+                <div class="flex items-center space-x-6">
+                    <span id="pointsDisplay" class="text-gray-600">
+                        Points: <span class="font-semibold">0</span>
+                    </span>
+                    <button onclick="showUpgradeModal()" class="text-purple-600 hover:text-purple-700 font-medium">
+                        Upgrade Plan
+                    </button>
+                    <button onclick="handleSignOut()" class="text-gray-600 hover:text-gray-700 font-medium">
+                        Sign Out
+                    </button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Add this right after the nav section -->
+    <div id="notifications" class="fixed top-20 right-4 z-50 space-y-4"></div>
+
+    <!-- Main Content -->
+    <div class="max-w-4xl mx-auto px-4 pt-24 pb-12">
+        <!-- Generation Form -->
+        <div class="bg-white p-8 rounded-lg shadow-sm mb-8">
+            <h2 class="text-2xl font-bold text-gray-900 mb-6">Generate Content</h2>
+            <form id="generateForm" class="space-y-6">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                        Video Description
+                    </label>
+                    <textarea id="description" rows="4" required
+                        placeholder="Describe your video content..."
+                        class="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"></textarea>
+                </div>
+                <div class="flex space-x-4">
+                    <button type="button" onclick="generateCaption()" 
+                        class="flex-1 bg-purple-600 text-white px-4 py-3 rounded-lg hover:bg-purple-700 transition-colors font-medium relative">
+                        <span class="generation-text">Generate Caption</span>
+                        <svg class="animate-spin h-5 w-5 mx-auto hidden absolute inset-0 m-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                    </button>
+                    <button type="button" onclick="generateHashtags()" 
+                        class="flex-1 bg-purple-600 text-white px-4 py-3 rounded-lg hover:bg-purple-700 transition-colors font-medium relative">
+                        <span class="generation-text">Generate Hashtags</span>
+                        <svg class="animate-spin h-5 w-5 mx-auto hidden absolute inset-0 m-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <!-- Results Section -->
+        <div class="space-y-6">
+            <!-- Caption Result -->
+            <div id="captionResult" class="hidden bg-white p-6 rounded-lg shadow-sm">
+                <div class="flex justify-between items-start mb-4">
+                    <h3 class="text-lg font-semibold text-gray-900">Generated Caption</h3>
+                    <button onclick="copyToClipboard('captionText')" 
+                        class="text-purple-600 hover:text-purple-700">
+                        <img src="https://img.icons8.com/fluency/48/copy.png" alt="Copy" class="w-5 h-5">
+                    </button>
+                </div>
+                <p id="captionText" class="text-gray-600"></p>
+            </div>
+
+            <!-- Hashtags Result -->
+            <div id="hashtagsResult" class="hidden bg-white p-6 rounded-lg shadow-sm">
+                <div class="flex justify-between items-start mb-4">
+                    <h3 class="text-lg font-semibold text-gray-900">Generated Hashtags</h3>
+                    <button onclick="copyToClipboard('hashtagsText')" 
+                        class="text-purple-600 hover:text-purple-700">
+                        <img src="https://img.icons8.com/fluency/48/copy.png" alt="Copy" class="w-5 h-5">
+                    </button>
+                </div>
+                <p id="hashtagsText" class="text-gray-600"></p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Upgrade Modal -->
+    <div id="upgradeModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div class="bg-white p-8 rounded-lg max-w-md w-full mx-4">
+            <div class="flex justify-between items-center mb-6">
+                <h3 class="text-xl font-bold text-gray-900">Buy Points</h3>
+                <button onclick="hideUpgradeModal()" class="text-gray-500 hover:text-gray-700">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+
+            <!-- Points Calculator -->
+            <div class="mb-6">
+                <label class="block text-sm font-medium text-gray-700 mb-2">
+                    Number of Points (Min 10, Max 5,000)
+                </label>
+                <div class="flex items-center space-x-4">
+                    <button onclick="adjustPoints(-10)" class="bg-gray-100 px-3 py-2 rounded-lg hover:bg-gray-200">
+                        -10
+                    </button>
+                    <input type="number" id="pointsToBuy" value="10" min="10" max="5000" step="10"
+                        class="w-full px-4 py-2 text-center bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                        onchange="updatePointsPrice()">
+                    <button onclick="adjustPoints(10)" class="bg-gray-100 px-3 py-2 rounded-lg hover:bg-gray-200">
+                        +10
+                    </button>
+                </div>
+            </div>
+
+            <!-- Price Display -->
+            <div class="bg-purple-50 p-4 rounded-lg mb-6">
+                <div class="flex justify-between items-center">
+                    <span class="text-gray-700">Price:</span>
+                    <span class="text-xl font-bold text-purple-600">$<span id="pointsPrice">10</span></span>
+                </div>
+                <p class="text-sm text-gray-600 mt-2">
+                    Rate: $0.10 per point
+                </p>
+            </div>
+
+            <!-- Purchase Button -->
+            <button onclick="startPointsCheckout()" 
+                class="w-full bg-purple-600 text-white px-4 py-3 rounded-lg hover:bg-purple-700 transition-colors font-medium mb-4">
+                Purchase Points
+            </button>
+        </div>
+    </div>
+
+    <script>
+        let currentUser = null;
+        let userPoints = 0;
+
+        // Initialize Firebase
+        async function initializeFirebase() {
+            try {
+                const response = await fetch('/api/firebase-config');
+                if (!response.ok) throw new Error('Failed to load Firebase configuration');
+                const firebaseConfig = await response.json();
+                firebase.initializeApp(firebaseConfig);
+                
+                // Check authentication state
+                firebase.auth().onAuthStateChanged((user) => {
+                    if (user) {
+                        currentUser = user;
+                        loadUserData();
+                    } else {
+                        window.location.href = '/auth';
+                    }
+                });
+            } catch (error) {
+                showError('Failed to initialize application. Please try again later.');
+                console.error('Firebase initialization error:', error);
+            }
+        }
+
+        // Load user data
+        async function loadUserData() {
+            try {
+                const doc = await firebase.firestore()
+                    .collection('users')
+                    .doc(currentUser.uid)
+                    .get();
+                
+                if (doc.exists) {
+                    const userData = doc.data();
+                    userPoints = userData.points;
+                    updatePointsDisplay();
+                }
+            } catch (error) {
+                showError('Failed to load user data');
+                console.error('Load user data error:', error);
+            }
+        }
+
+        // Update points display
+        function updatePointsDisplay() {
+            const pointsElement = document.querySelector('#pointsDisplay span');
+            pointsElement.textContent = userPoints;
+        }
+
+        // Generate caption
+        async function generateCaption() {
+            if (userPoints < 1) {
+                showUpgradeModal();
+                return;
+            }
+
+            const description = document.getElementById('description').value;
+            if (!description) {
+                showError('Please enter a video description');
+                return;
+            }
+
+            setLoading(true);
+            try {
+                const response = await fetch('/api/generate-caption', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ description })
+                });
+
+                if (!response.ok) throw new Error('Failed to generate caption');
+                const data = await response.json();
+
+                document.getElementById('captionText').textContent = data.caption;
+                document.getElementById('captionResult').classList.remove('hidden');
+
+                // Update points
+                userPoints--;
+                updatePointsDisplay();
+                await updateUserPoints();
+            } catch (error) {
+                showError('Failed to generate caption');
+                console.error('Generate caption error:', error);
+            } finally {
+                setLoading(false);
+            }
+        }
+
+        // Generate hashtags
+        async function generateHashtags() {
+            if (userPoints < 1) {
+                showUpgradeModal();
+                return;
+            }
+
+            const description = document.getElementById('description').value;
+            if (!description) {
+                showError('Please enter a video description');
+                return;
+            }
+
+            setLoading(true);
+            try {
+                const response = await fetch('/api/generate-hashtags', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ description })
+                });
+
+                if (!response.ok) throw new Error('Failed to generate hashtags');
+                const data = await response.json();
+
+                document.getElementById('hashtagsText').textContent = data.hashtags;
+                document.getElementById('hashtagsResult').classList.remove('hidden');
+
+                // Update points
+                userPoints--;
+                updatePointsDisplay();
+                await updateUserPoints();
+            } catch (error) {
+                showError('Failed to generate hashtags');
+                console.error('Generate hashtags error:', error);
+            } finally {
+                setLoading(false);
+            }
+        }
+
+        // Update user points in Firestore
+        async function updateUserPoints() {
+            try {
+                await firebase.firestore()
+                    .collection('users')
+                    .doc(currentUser.uid)
+                    .update({
+                        points: userPoints
+                    });
+            } catch (error) {
+                console.error('Update points error:', error);
+            }
+        }
+
+        // Copy to clipboard
+        async function copyToClipboard(elementId) {
+            const text = document.getElementById(elementId).textContent;
+            try {
+                await navigator.clipboard.writeText(text);
+                showSuccess('Copied to clipboard!');
+            } catch (error) {
+                showError('Failed to copy to clipboard');
+            }
+        }
+
+        // Show/hide upgrade modal
+        function showUpgradeModal() {
+            document.getElementById('upgradeModal').classList.remove('hidden');
+        }
+
+        function hideUpgradeModal() {
+            document.getElementById('upgradeModal').classList.add('hidden');
+        }
+
+        // Start Stripe checkout
+        async function startCheckout(plan) {
+            try {
+                const response = await fetch('/api/create-checkout-session', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ 
+                        plan,
+                        userId: currentUser.uid
+                    })
+                });
+
+                if (!response.ok) throw new Error('Failed to create checkout session');
+                const data = await response.json();
+                window.location.href = data.url;
+            } catch (error) {
+                showError('Failed to start checkout');
+                console.error('Checkout error:', error);
+            }
+        }
+
+        // Sign out
+        async function handleSignOut() {
+            try {
+                await firebase.auth().signOut();
+                window.location.href = '/auth';
+            } catch (error) {
+                showError('Failed to sign out');
+                console.error('Sign out error:', error);
+            }
+        }
+
+        // Loading state
+        function setLoading(isLoading) {
+            const buttons = document.querySelectorAll('button');
+            buttons.forEach(button => {
+                button.disabled = isLoading;
+            });
+        }
+
+        // Error handling
+        function showError(message) {
+            showNotification(message, 'error');
+        }
+
+        function showSuccess(message) {
+            showNotification(message, 'success');
+        }
+
+        function adjustPoints(amount) {
+            const input = document.getElementById('pointsToBuy');
+            let newValue = parseInt(input.value) + amount;
+            
+            // Ensure within bounds (10-5000)
+            newValue = Math.max(10, Math.min(5000, newValue));
+            
+            input.value = newValue;
+            updatePointsPrice();
+        }
+
+        function updatePointsPrice() {
+            const points = document.getElementById('pointsToBuy').value;
+            const price = (points * 0.10).toFixed(2); // $0.10 per point
+            document.getElementById('pointsPrice').textContent = price;
+        }
+
+        async function startPointsCheckout() {
+            const points = parseInt(document.getElementById('pointsToBuy').value);
+            
+            if (points < 10 || points > 5000) {
+                showError('Please select between 10 and 5,000 points');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/create-points-checkout', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ 
+                        points,
+                        userId: currentUser.uid
+                    })
+                });
+
+                if (!response.ok) throw new Error('Failed to create checkout session');
+                const data = await response.json();
+                window.location.href = data.url;
+            } catch (error) {
+                showError('Failed to start checkout');
+                console.error('Checkout error:', error);
+            }
+        }
+
+        // Initialize app
+        initializeFirebase();
+
+        // Update the error and success functions in the script
+        function showNotification(message, type = 'success') {
+            const notifications = document.getElementById('notifications');
+            const notification = document.createElement('div');
+            
+            notification.className = `p-4 rounded-lg shadow-lg transform translate-x-full transition-transform duration-300 ${
+                type === 'success' ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'
+            }`;
+            
+            notification.innerHTML = `
+                <div class="flex items-center">
+                    <span class="mr-2">
+                        ${type === 'success' ? '✓' : '✕'}
+                    </span>
+                    <span>${message}</span>
+                </div>
+            `;
+            
+            notifications.appendChild(notification);
+            
+            // Animate in
+            setTimeout(() => {
+                notification.classList.remove('translate-x-full');
+            }, 100);
+            
+            // Remove after 3 seconds
+            setTimeout(() => {
+                notification.classList.add('translate-x-full');
+                setTimeout(() => {
+                    notifications.removeChild(notification);
+                }, 300);
+            }, 3000);
+        }
+
+        // Add this to the initialization script
+        async function initializeUserData() {
+            try {
+                const user = firebase.auth().currentUser;
+                if (!user) return;
+
+                const userDoc = await firebase.firestore().collection('users').doc(user.uid).get();
+                if (userDoc.exists) {
+                    const userData = userDoc.data();
+                    // Update points display
+                    document.querySelector('#pointsDisplay .font-semibold').textContent = userData.points || 3;
+                }
+            } catch (error) {
+                console.error('Error loading user data:', error);
+                showError('Failed to load user data');
+            }
+        }
+
+        // Add real-time points updates
+        function setupPointsListener() {
+            const user = firebase.auth().currentUser;
+            if (!user) return;
+
+            firebase.firestore().collection('users').doc(user.uid)
+                .onSnapshot((doc) => {
+                    if (doc.exists) {
+                        const points = doc.data().points || 3;
+                        document.querySelector('#pointsDisplay .font-semibold').textContent = points;
+                    }
+                }, (error) => {
+                    console.error('Points listener error:', error);
+                });
+        }
+
+        // Call these functions after Firebase initialization
+        firebase.auth().onAuthStateChanged((user) => {
+            if (user) {
+                initializeUserData();
+                setupPointsListener();
+            } else {
+                window.location.href = '/auth';
+            }
+        });
+    </script>
+</body>
+</html> 

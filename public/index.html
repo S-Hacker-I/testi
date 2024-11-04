@@ -3,496 +3,189 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Image Generator</title>
+    <title>TikSave - AI Caption & Hashtag Generator</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://js.stripe.com/v3/"></script>
-    <!-- Add Inter font -->
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" href="https://img.icons8.com/fluency/48/tiktok.png">
+    <!-- Google Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         body {
             font-family: 'Inter', sans-serif;
         }
-        .generated-image-container {
-            aspect-ratio: 1 / 1;
-            max-height: 512px;
-        }
-        .generated-image {
-            object-fit: contain;
-            width: 100%;
-            height: 100%;
-        }
-        @keyframes gradient {
-            0% { background-position: 0% 50%; }
-            50% { background-position: 100% 50%; }
-            100% { background-position: 0% 50%; }
-        }
-        .gradient-bg {
-            background: linear-gradient(-45deg, #ee7752, #e73c7e, #23a6d5, #23d5ab);
-            background-size: 400% 400%;
-            animation: gradient 15s ease infinite;
-        }
     </style>
 </head>
-<body class="gradient-bg min-h-screen p-4 sm:p-6 md:p-8">
-    <!-- Credits Display -->
-    <div class="max-w-4xl mx-auto mb-4">
-        <div class="bg-white/90 backdrop-blur-sm rounded-xl shadow-lg p-4 flex justify-between items-center">
-            <div class="flex items-center gap-2">
-                <span class="text-sm font-medium text-gray-700">Credits:</span>
-                <span id="credits-display" class="text-lg font-bold text-blue-600">-</span>
+<body class="bg-gray-50">
+    <!-- Navigation -->
+    <nav class="bg-white shadow-sm fixed w-full top-0 z-50">
+        <div class="max-w-6xl mx-auto px-4">
+            <div class="flex justify-between items-center h-16">
+                <div class="flex items-center space-x-2">
+                    <img src="https://img.icons8.com/fluency/48/tiktok.png" alt="TikSave Logo" class="h-8 w-8">
+                    <span class="text-2xl font-bold text-purple-600">TikSave</span>
+                </div>
+                <div class="flex space-x-6">
+                    <a href="#features" class="text-gray-600 hover:text-purple-600 font-medium">Features</a>
+                    <a href="#pricing" class="text-gray-600 hover:text-purple-600 font-medium">Pricing</a>
+                    <a href="/auth" class="text-purple-600 hover:text-purple-700 font-medium">Login</a>
+                    <a href="/auth?signup=true" class="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 transition-colors font-medium">Get Started</a>
+                </div>
             </div>
-            <button 
-                id="buy-credits"
-                class="px-4 py-2 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-lg hover:from-green-600 hover:to-emerald-700 transition-all duration-200 flex items-center gap-2 shadow-md hover:shadow-lg">
-                <span>Buy Credits</span>
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v2H7a1 1 0 100 2h2v2a1 1 0 102 0v-2h2a1 1 0 100-2h-2V7z" clip-rule="evenodd" />
-                </svg>
-            </button>
         </div>
-    </div>
+    </nav>
 
-    <!-- Main Container -->
-    <div class="max-w-4xl mx-auto space-y-6">
-        <!-- Input Section -->
-        <div class="bg-white/90 backdrop-blur-sm rounded-xl shadow-lg p-6">
-            <h1 class="text-2xl sm:text-3xl font-bold mb-6 text-gray-800">AI Image Generator</h1>
-            
-            <div class="space-y-6">
-                <!-- Prompt Input -->
-                <div>
-                    <label for="prompt" class="block text-sm font-medium text-gray-700 mb-2">What would you like to create?</label>
-                    <div class="flex gap-2">
-                        <input 
-                            type="text" 
-                            id="prompt" 
-                            class="block w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200"
-                            placeholder="Describe the image you want to generate..."
-                        >
-                        <button 
-                            id="random-prompt"
-                            class="p-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-all duration-200 shadow-md hover:shadow-lg"
-                            title="Generate random prompt">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd" />
-                            </svg>
-                        </button>
+    <!-- Hero Section -->
+    <section class="pt-28 pb-32 bg-gradient-to-b from-purple-50 to-white">
+        <div class="max-w-6xl mx-auto px-4">
+            <div class="grid md:grid-cols-2 gap-12 items-center">
+                <div class="text-left">
+                    <h1 class="text-5xl font-bold text-gray-900 mb-6 leading-tight">
+                        Create Viral TikTok Content with AI Magic
+                    </h1>
+                    <p class="text-xl text-gray-600 mb-8">
+                        Generate engaging captions and trending hashtags that boost your TikTok reach using advanced AI technology.
+                    </p>
+                    <div class="flex space-x-4">
+                        <a href="/auth?signup=true" class="inline-block bg-purple-600 text-white px-8 py-4 rounded-lg text-lg hover:bg-purple-700 transform hover:scale-105 transition-all font-medium">
+                            Start Free Trial
+                        </a>
+                        <a href="#features" class="inline-block border-2 border-purple-600 text-purple-600 px-8 py-4 rounded-lg text-lg hover:bg-purple-50 transition-all font-medium">
+                            Learn More
+                        </a>
                     </div>
                 </div>
-
-                <!-- Add this right after the prompt input -->
-                <div id="error-message" class="hidden text-red-600 text-sm mt-2"></div>
-
-                <!-- Update the spinner -->
-                <div id="spinner" class="hidden flex items-center justify-center gap-2">
-                    <svg class="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    <span>Generating image...</span>
-                </div>
-
-                <!-- Generate Button -->
-                <button 
-                    id="generate"
-                    class="w-full sm:w-auto px-6 py-3 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg hover:from-blue-600 hover:to-blue-700 transition-all duration-200 flex items-center justify-center gap-2 shadow-md hover:shadow-lg">
-                    <span>Generate Image</span>
-                    <svg id="button-spinner" class="animate-spin h-5 w-5 hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                </button>
-            </div>
-        </div>
-
-        <!-- Result Section -->
-        <div id="result" class="hidden mt-8">
-            <div class="generated-image-container bg-white/50 backdrop-blur-sm rounded-xl shadow-lg p-4">
-                <img id="generated-image" class="generated-image rounded-lg" alt="Generated image">
-            </div>
-            <button 
-                id="download"
-                class="w-full sm:w-auto px-6 py-3 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-lg hover:from-green-600 hover:to-green-700 transition-all duration-200 flex items-center justify-center gap-2 shadow-md hover:shadow-lg">
-                <span>Download Image</span>
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                    <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd" />
-                </svg>
-            </button>
-        </div>
-    </div>
-
-    <!-- Modified Purchase Modal Template -->
-    <template id="purchase-modal-template">
-        <div class="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-            <div class="bg-white rounded-xl shadow-xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto">
-                <h2 class="text-2xl font-bold mb-6 text-gray-800">Purchase Credits</h2>
-                <div class="space-y-4">
-                    <!-- Credit packages will be inserted here -->
-                </div>
-                <div class="mt-6 flex justify-end gap-2">
-                    <button class="px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors duration-200" id="close-modal">Cancel</button>
+                <div class="hidden md:block">
+                    <img src="https://images.unsplash.com/photo-1611162616475-46b635cb6868?w=800" alt="TikTok Content Creation" class="rounded-lg shadow-lg">
                 </div>
             </div>
         </div>
-    </template>
+    </section>
 
-    <!-- Keep your existing script tag with the JavaScript code -->
-    <script>
-        const promptTemplates = [
-            // Landscapes & Nature
-            "A serene mountain landscape at {timeOfDay}",
-            "A mystical forest with glowing mushrooms",
-            "Crystal caves with {color} gemstones",
-            "An ancient tree in a {weather} storm",
-            "A {season} garden with blooming flowers",
-            
-            // Architecture
-            "A futuristic {city} skyline",
-            "An abandoned {ancient} temple",
-            "A floating city in the clouds",
-            "A {style} castle on a cliff",
-            "An underwater city with glass domes",
-            
-            // Objects & Still Life
-            "A collection of vintage {objects}",
-            "A steampunk {machine}",
-            "A magical {object} floating in space",
-            "Ancient {artifact} with glowing runes",
-            "A {material} sculpture in {style} style",
-            
-            // Abstract & Artistic
-            "Abstract waves of {color} and {color}",
-            "Geometric patterns inspired by {nature}",
-            "A fractal design in {color} tones",
-            "Cosmic nebula in {color} hues",
-            "Digital art of {weather} elements",
-            
-            // Environments
-            "An alien landscape with crystal formations",
-            "A secret garden with {material} statues",
-            "A {style} library filled with ancient books",
-            "A {material} maze in a {location}",
-            "A {season} scene in a Japanese garden"
-        ];
+    <!-- Features Section -->
+    <section id="features" class="py-20">
+        <div class="max-w-6xl mx-auto px-4">
+            <h2 class="text-3xl font-bold text-center mb-4">Powerful Features</h2>
+            <p class="text-gray-600 text-center mb-12 max-w-2xl mx-auto">Everything you need to create engaging TikTok content that reaches your target audience</p>
+            <div class="grid md:grid-cols-3 gap-8">
+                <!-- AI Caption Generator -->
+                <div class="bg-white p-8 rounded-lg shadow-sm hover:shadow-md transition-shadow">
+                    <img src="https://img.icons8.com/fluency/48/artificial-intelligence.png" alt="AI" class="w-12 h-12 mb-4">
+                    <h3 class="text-xl font-semibold mb-3">AI Caption Generator</h3>
+                    <p class="text-gray-600">Create engaging, viral-worthy captions tailored to your content style and audience</p>
+                </div>
+                <!-- Smart Hashtags -->
+                <div class="bg-white p-8 rounded-lg shadow-sm hover:shadow-md transition-shadow">
+                    <img src="https://img.icons8.com/fluency/48/hashtag.png" alt="Hashtag" class="w-12 h-12 mb-4">
+                    <h3 class="text-xl font-semibold mb-3">Smart Hashtags</h3>
+                    <p class="text-gray-600">Get trending hashtag recommendations that maximize your content's reach</p>
+                </div>
+                <!-- Analytics Dashboard -->
+                <div class="bg-white p-8 rounded-lg shadow-sm hover:shadow-md transition-shadow">
+                    <img src="https://img.icons8.com/fluency/48/analytics.png" alt="Analytics" class="w-12 h-12 mb-4">
+                    <h3 class="text-xl font-semibold mb-3">Analytics Dashboard</h3>
+                    <p class="text-gray-600">Track your content performance and optimize your strategy with detailed insights</p>
+                </div>
+            </div>
+        </div>
+    </section>
 
-        const randomWords = {
-            timeOfDay: ['sunset', 'dawn', 'dusk', 'midnight', 'golden hour'],
-            color: ['emerald', 'sapphire', 'ruby', 'amethyst', 'golden', 'silver', 'copper', 'azure'],
-            weather: ['thundering', 'misty', 'stormy', 'rainy', 'snowy'],
-            season: ['spring', 'summer', 'autumn', 'winter'],
-            city: ['neon', 'cyberpunk', 'utopian', 'modern', 'floating'],
-            ancient: ['Mayan', 'Egyptian', 'Greek', 'Roman', 'Aztec'],
-            style: ['Gothic', 'Victorian', 'Art Deco', 'Baroque', 'Minimalist', 'Futuristic'],
-            objects: ['pocket watches', 'compasses', 'telescopes', 'music boxes', 'antique keys'],
-            machine: ['clockwork device', 'time machine', 'flying machine', 'mechanical orchestra'],
-            object: ['crystal', 'ancient artifact', 'mechanical device', 'geometric shape'],
-            artifact: ['compass', 'sundial', 'astrolabe', 'crystal ball'],
-            material: ['crystal', 'marble', 'bronze', 'glass', 'ice', 'metal'],
-            nature: ['ocean waves', 'crystal formations', 'cloud patterns', 'tree rings'],
-            location: ['desert', 'mountain peak', 'underwater cavern', 'floating island']
-        };
-
-        function getRandomElement(array) {
-            return array[Math.floor(Math.random() * array.length)];
-        }
-
-        function generateRandomPrompt() {
-            const template = getRandomElement(promptTemplates);
-            return template.replace(/\{(\w+)\}/g, (match, key) => {
-                return getRandomElement(randomWords[key] || [match]);
-            });
-        }
-
-        document.getElementById('random-prompt').addEventListener('click', () => {
-            const promptInput = document.getElementById('prompt');
-            promptInput.value = generateRandomPrompt();
-        });
-
-        function downloadImage(imageUrl, promptText) {
-            const link = document.createElement('a');
-            link.href = imageUrl;
-            const filename = promptText.toLowerCase()
-                .replace(/[^a-z0-9]/g, '_')
-                .replace(/_+/g, '_')
-                .substring(0, 50) + '.png';
-            link.download = filename;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-        }
-
-        // Credit system management
-        let userId = localStorage.getItem('userId');
-        if (!userId) {
-            userId = 'user_' + Math.random().toString(36).substr(2, 9);
-            localStorage.setItem('userId', userId);
-        }
-
-        const CREDIT_PACKAGES = [
-            { id: 'credits_10', credits: 10, price: 5, name: 'Basic Pack' },
-            { id: 'credits_25', credits: 25, price: 10, name: 'Popular Pack' },
-            { id: 'credits_50', credits: 50, price: 18, name: 'Pro Pack' }
-        ];
-
-        async function checkCredits() {
-            try {
-                const response = await fetch('/api/check-credits', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ userId })
-                });
-
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-
-                const data = await response.json();
-                
-                if (!data.success) {
-                    throw new Error(data.message || 'Failed to check credits');
-                }
-
-                document.getElementById('credits-display').textContent = data.credits;
-                return data.credits;
-            } catch (error) {
-                console.error('Error checking credits:', error);
-                document.getElementById('credits-display').textContent = '?';
-                showError('Failed to load credits. Please refresh the page.');
-                return 0;
-            }
-        }
-
-        async function purchaseCredits(amount) {
-            try {
-                const response = await fetch('/api/purchase-credits', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ userId, amount })
-                });
-                
-                if (!response.ok) throw new Error('Failed to purchase credits');
-                
-                const { credits } = await response.json();
-                document.getElementById('credits-display').textContent = credits;
-                return credits;
-            } catch (error) {
-                console.error('Error purchasing credits:', error);
-                throw error;
-            }
-        }
-
-        // Modify the showPurchaseModal function to use the template
-        function showPurchaseModal() {
-            const template = document.getElementById('purchase-modal-template');
-            const modal = template.content.cloneNode(true);
-            
-            // Insert credit packages
-            const packagesContainer = modal.querySelector('.space-y-4');
-            packagesContainer.innerHTML = CREDIT_PACKAGES.map(pkg => `
-                <div class="border border-gray-200 rounded-xl p-4 hover:bg-gray-50 cursor-pointer package-option transition-all duration-200 hover:shadow-md"
-                     data-package-id="${pkg.id}">
-                    <div class="flex justify-between items-center">
-                        <div>
-                            <span class="font-bold text-xl text-gray-800">${pkg.credits} Credits</span>
-                            <p class="text-sm text-gray-600">${pkg.name}</p>
-                        </div>
-                        <div class="text-right">
-                            <span class="text-green-600 font-bold text-xl">$${pkg.price}</span>
-                            <p class="text-xs text-gray-500">${(pkg.price / pkg.credits).toFixed(2)}/credit</p>
-                        </div>
+    <!-- Pricing Section -->
+    <section id="pricing" class="py-20 bg-purple-50">
+        <div class="max-w-6xl mx-auto px-4">
+            <h2 class="text-3xl font-bold text-center mb-4">Simple Pricing</h2>
+            <p class="text-gray-600 text-center mb-12 max-w-2xl mx-auto">Choose the perfect plan for your content creation needs</p>
+            <div class="grid md:grid-cols-3 gap-8">
+                <!-- Starter Plan -->
+                <div class="bg-white p-8 rounded-lg shadow-sm hover:shadow-md transition-shadow">
+                    <div class="text-center mb-8">
+                        <h3 class="text-xl font-semibold mb-2">Starter</h3>
+                        <div class="text-4xl font-bold text-purple-600">$5</div>
+                        <p class="text-gray-600 mt-2">Perfect for beginners</p>
                     </div>
+                    <ul class="space-y-3 mb-8">
+                        <li class="flex items-center">
+                            <img src="https://img.icons8.com/fluency/48/checkmark.png" alt="Check" class="w-5 h-5 mr-2">
+                            <span>10 AI Generations</span>
+                        </li>
+                        <li class="flex items-center">
+                            <img src="https://img.icons8.com/fluency/48/checkmark.png" alt="Check" class="w-5 h-5 mr-2">
+                            <span>Basic Hashtags</span>
+                        </li>
+                    </ul>
+                    <a href="/auth?signup=true&plan=starter" class="block w-full bg-purple-600 text-white py-3 rounded-lg text-center font-medium hover:bg-purple-700 transition-colors">
+                        Get Started
+                    </a>
                 </div>
-            `).join('');
 
-            document.body.appendChild(modal);
+                <!-- Pro Plan -->
+                <div class="bg-white p-8 rounded-lg shadow-md border-2 border-purple-600 transform scale-105">
+                    <div class="text-center mb-8">
+                        <span class="bg-purple-100 text-purple-600 px-3 py-1 rounded-full text-sm font-medium">Most Popular</span>
+                        <h3 class="text-xl font-semibold mb-2 mt-4">Pro</h3>
+                        <div class="text-4xl font-bold text-purple-600">$20</div>
+                        <p class="text-gray-600 mt-2">For growing creators</p>
+                    </div>
+                    <ul class="space-y-3 mb-8">
+                        <li class="flex items-center">
+                            <img src="https://img.icons8.com/fluency/48/checkmark.png" alt="Check" class="w-5 h-5 mr-2">
+                            <span>50 AI Generations</span>
+                        </li>
+                        <li class="flex items-center">
+                            <img src="https://img.icons8.com/fluency/48/checkmark.png" alt="Check" class="w-5 h-5 mr-2">
+                            <span>Advanced Hashtags</span>
+                        </li>
+                        <li class="flex items-center">
+                            <img src="https://img.icons8.com/fluency/48/checkmark.png" alt="Check" class="w-5 h-5 mr-2">
+                            <span>Analytics Dashboard</span>
+                        </li>
+                    </ul>
+                    <a href="/auth?signup=true&plan=pro" class="block w-full bg-purple-600 text-white py-3 rounded-lg text-center font-medium hover:bg-purple-700 transition-colors">
+                        Choose Pro
+                    </a>
+                </div>
 
-            // Add event listeners
-            const modalElement = document.querySelector('.fixed');
-            modalElement.querySelector('#close-modal').addEventListener('click', () => {
-                document.body.removeChild(modalElement);
-            });
+                <!-- Premium Plan -->
+                <div class="bg-white p-8 rounded-lg shadow-sm hover:shadow-md transition-shadow">
+                    <div class="text-center mb-8">
+                        <h3 class="text-xl font-semibold mb-2">Premium</h3>
+                        <div class="text-4xl font-bold text-purple-600">$35</div>
+                        <p class="text-gray-600 mt-2">For power users</p>
+                    </div>
+                    <ul class="space-y-3 mb-8">
+                        <li class="flex items-center">
+                            <img src="https://img.icons8.com/fluency/48/checkmark.png" alt="Check" class="w-5 h-5 mr-2">
+                            <span>100 AI Generations</span>
+                        </li>
+                        <li class="flex items-center">
+                            <img src="https://img.icons8.com/fluency/48/checkmark.png" alt="Check" class="w-5 h-5 mr-2">
+                            <span>Premium Hashtags</span>
+                        </li>
+                        <li class="flex items-center">
+                            <img src="https://img.icons8.com/fluency/48/checkmark.png" alt="Check" class="w-5 h-5 mr-2">
+                            <span>Priority Support</span>
+                        </li>
+                    </ul>
+                    <a href="/auth?signup=true&plan=premium" class="block w-full bg-purple-600 text-white py-3 rounded-lg text-center font-medium hover:bg-purple-700 transition-colors">
+                        Get Premium
+                    </a>
+                </div>
+            </div>
+        </div>
+    </section>
 
-            document.querySelectorAll('.package-option').forEach(option => {
-                option.addEventListener('click', async () => {
-                    const packageId = option.dataset.packageId;
-                    try {
-                        const response = await fetch('/api/create-checkout-session', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ 
-                                packageId, 
-                                userId: localStorage.getItem('userId') 
-                            })
-                        });
-
-                        if (!response.ok) {
-                            const error = await response.json();
-                            throw new Error(error.message || 'Failed to create checkout session');
-                        }
-
-                        const { url } = await response.json();
-                        window.location = url;
-                    } catch (error) {
-                        console.error('Error:', error);
-                        alert('Failed to initiate checkout. Please try again.');
-                    }
-                });
-            });
-        }
-
-        // Initialize credits when page loads
-        checkCredits();
-
-        // Buy credits button handler
-        document.getElementById('buy-credits').addEventListener('click', showPurchaseModal);
-
-        // Better error handling function
-        function showError(message) {
-            const errorDiv = document.getElementById('error-message');
-            errorDiv.textContent = message;
-            errorDiv.classList.remove('hidden');
-            setTimeout(() => {
-                errorDiv.classList.add('hidden');
-            }, 5000);
-        }
-
-        // Add these functions
-        function handleApiError(error) {
-            console.error('Full error:', error);
-            
-            if (error.response) {
-                switch (error.response.status) {
-                    case 400:
-                        return 'Invalid request. Please check your input.';
-                    case 401:
-                        return 'Authentication failed. Please refresh the page.';
-                    case 403:
-                        return 'Insufficient credits. Please purchase more credits.';
-                    case 429:
-                        return 'Too many requests. Please try again later.';
-                    case 503:
-                        return 'Service temporarily unavailable. Please try again later.';
-                    default:
-                        return error.response.data?.error || 'An unexpected error occurred';
-                }
-            }
-            return error.message || 'Network error. Please check your connection.';
-        }
-
-        // Update the generate button handler
-        document.getElementById('generate').addEventListener('click', async () => {
-            try {
-                // Add loading state
-                const generateButton = document.getElementById('generate');
-                generateButton.disabled = true;
-                generateButton.innerHTML = '<span class="spinner"></span> Generating...';
-
-                const prompt = document.getElementById('prompt').value;
-                if (!prompt.trim()) {
-                    showError('Please enter a prompt');
-                    return;
-                }
-
-                const button = document.getElementById('generate');
-                const spinner = document.getElementById('spinner');
-                const resultContainer = document.getElementById('result');
-                const downloadButton = document.getElementById('download');
-
-                try {
-                    // Disable button and show spinner
-                    button.disabled = true;
-                    spinner.classList.remove('hidden');
-                    resultContainer.classList.add('hidden');
-                    downloadButton.classList.add('hidden');
-
-                    const userId = localStorage.getItem('userId');
-                    if (!userId) {
-                        throw new Error('User ID not found');
-                    }
-
-                    const response = await fetch('/api/generate-image', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ prompt, userId })
-                    });
-
-                    if (!response.ok) {
-                        const errorData = await response.json();
-                        throw new Error(errorData.error || 'Failed to generate image');
-                    }
-
-                    const data = await response.json();
-                    
-                    if (!data.success || !data.image) {
-                        throw new Error('Invalid response from server');
-                    }
-
-                    // Update the image and show it
-                    const generatedImage = document.getElementById('generated-image');
-                    generatedImage.src = data.image;
-                    resultContainer.classList.remove('hidden');
-                    downloadButton.classList.remove('hidden');
-
-                    // Update credits display
-                    if (data.credits !== undefined) {
-                        document.getElementById('credits-display').textContent = data.credits;
-                    }
-
-                } catch (error) {
-                    const errorMessage = handleApiError(error);
-                    showError(errorMessage);
-                } finally {
-                    // Re-enable button and hide spinner
-                    button.disabled = false;
-                    spinner.classList.add('hidden');
-                }
-
-            } catch (error) {
-                const errorMessage = handleApiError(error);
-                showError(errorMessage);
-            } finally {
-                button.disabled = false;
-                button.innerHTML = 'Generate Image';
-            }
-        });
-
-        // Add this function for downloading images
-        function downloadImage(imageUrl, promptText) {
-            const link = document.createElement('a');
-            link.href = imageUrl;
-            link.download = `${promptText.slice(0, 30)}_${Date.now()}.jpg`;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-        }
-
-        // Update the download button handler
-        document.getElementById('download').addEventListener('click', () => {
-            const imageUrl = document.getElementById('generated-image').src;
-            const promptText = document.getElementById('prompt').value;
-            downloadImage(imageUrl, promptText);
-        });
-
-        // Add success page handler
-        if (window.location.pathname === '/success') {
-            const urlParams = new URLSearchParams(window.location.search);
-            const sessionId = urlParams.get('session_id');
-            
-            if (sessionId) {
-                fetch(`/api/payment-success?session_id=${sessionId}`)
-                    .then(response => response.json())
-                    .then(data => {
-                        if (data.success) {
-                            alert(`Successfully purchased ${data.credits} credits!`);
-                            window.location.href = '/'; // Redirect to homepage
-                        }
-                    })
-                    .catch(error => {
-                        console.error('Error:', error);
-                        alert('Failed to verify payment. Please contact support.');
-                    });
-            }
-        }
-    </script>
+    <!-- Footer -->
+    <footer class="bg-white py-12">
+        <div class="max-w-6xl mx-auto px-4">
+            <div class="flex justify-between items-center">
+                <div class="flex items-center space-x-2">
+                    <img src="https://img.icons8.com/fluency/48/tiktok.png" alt="TikSave Logo" class="h-8 w-8">
+                    <span class="text-xl font-bold text-purple-600">TikSave</span>
+                </div>
+                <div class="text-gray-600">
+                    © 2024 TikSave. All rights reserved.
+                </div>
+            </div>
+        </div>
+    </footer>
 </body>
 </html> 

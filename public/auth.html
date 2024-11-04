@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TikSave - Authentication</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="icon" type="image/png" href="https://img.icons8.com/fluency/48/tiktok.png">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .loading-spinner {
+            border: 2px solid #f3f3f3;
+            border-radius: 50%;
+            border-top: 2px solid #9333ea;
+            width: 16px;
+            height: 16px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <!-- Notifications Container -->
+    <div id="notifications" class="fixed top-4 right-4 z-50 space-y-4"></div>
+
+    <!-- Navigation -->
+    <nav class="bg-white shadow-sm fixed w-full top-0 z-40">
+        <div class="max-w-6xl mx-auto px-4">
+            <div class="flex justify-between items-center h-16">
+                <a href="/" class="flex items-center space-x-2">
+                    <img src="https://img.icons8.com/fluency/48/tiktok.png" alt="TikSave Logo" class="h-8 w-8">
+                    <span class="text-2xl font-bold text-purple-600">TikSave</span>
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Auth Container -->
+    <div class="min-h-screen pt-16 pb-12 flex flex-col justify-center">
+        <div class="max-w-md mx-auto px-4">
+            <!-- Login Form -->
+            <div id="loginForm" class="bg-white p-8 rounded-lg shadow-sm">
+                <div class="text-center mb-8">
+                    <h2 class="text-2xl font-bold text-gray-900">Welcome back</h2>
+                    <p class="text-gray-600 mt-2">Generate viral TikTok content</p>
+                </div>
+                <form onsubmit="handleLogin(event)" class="space-y-4">
+                    <div>
+                        <input type="email" id="loginEmail" required 
+                            placeholder="Email address"
+                            class="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent">
+                        <div class="text-red-600 text-sm mt-1 hidden" id="loginEmailError"></div>
+                    </div>
+                    <div>
+                        <input type="password" id="loginPassword" required 
+                            placeholder="Password"
+                            class="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent">
+                        <div class="text-red-600 text-sm mt-1 hidden" id="loginPasswordError"></div>
+                    </div>
+                    <button type="submit" 
+                        class="w-full bg-purple-600 text-white px-4 py-3 rounded-lg hover:bg-purple-700 transition-colors font-medium">
+                        <span class="button-text">Sign In</span>
+                        <div class="loading-spinner hidden"></div>
+                    </button>
+                </form>
+                <div class="mt-6 text-center space-y-4">
+                    <button onclick="toggleForm('forgot')" class="text-sm text-gray-600 hover:text-purple-600">
+                        Forgot password?
+                    </button>
+                    <p class="text-sm text-gray-600">
+                        Don't have an account? 
+                        <button onclick="toggleForm('signup')" class="text-purple-600 hover:text-purple-700 font-medium">
+                            Sign up
+                        </button>
+                    </p>
+                </div>
+            </div>
+
+            <!-- Signup Form -->
+            <div id="signupForm" class="hidden bg-white p-8 rounded-lg shadow-sm">
+                <div class="text-center mb-8">
+                    <h2 class="text-2xl font-bold text-gray-900">Create Account</h2>
+                    <p class="text-gray-600 mt-2">Start generating viral content</p>
+                </div>
+                <form onsubmit="handleSignup(event)" class="space-y-4">
+                    <div>
+                        <input type="email" id="signupEmail" required 
+                            placeholder="Email address"
+                            class="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent">
+                        <div class="text-red-600 text-sm mt-1 hidden" id="signupEmailError"></div>
+                    </div>
+                    <div>
+                        <input type="password" id="signupPassword" required 
+                            placeholder="Password (min. 6 characters)"
+                            class="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent">
+                        <div class="text-red-600 text-sm mt-1 hidden" id="signupPasswordError"></div>
+                    </div>
+                    <button type="submit" 
+                        class="w-full bg-purple-600 text-white px-4 py-3 rounded-lg hover:bg-purple-700 transition-colors font-medium">
+                        <span class="button-text">Create Account</span>
+                        <div class="loading-spinner hidden"></div>
+                    </button>
+                </form>
+                <div class="mt-6 text-center">
+                    <p class="text-sm text-gray-600">
+                        Already have an account? 
+                        <button onclick="toggleForm('login')" class="text-purple-600 hover:text-purple-700 font-medium">
+                            Sign in
+                        </button>
+                    </p>
+                </div>
+            </div>
+
+            <!-- Forgot Password Form -->
+            <div id="forgotPasswordForm" class="hidden bg-white p-8 rounded-lg shadow-sm">
+                <div class="text-center mb-8">
+                    <h2 class="text-2xl font-bold text-gray-900">Reset Password</h2>
+                    <p class="text-gray-600 mt-2">We'll send you a reset link</p>
+                </div>
+                <form onsubmit="handleForgotPassword(event)" class="space-y-4">
+                    <div>
+                        <input type="email" id="resetEmail" required 
+                            placeholder="Email address"
+                            class="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent">
+                        <div class="text-red-600 text-sm mt-1 hidden" id="resetEmailError"></div>
+                    </div>
+                    <button type="submit" 
+                        class="w-full bg-purple-600 text-white px-4 py-3 rounded-lg hover:bg-purple-700 transition-colors font-medium">
+                        <span class="button-text">Send Reset Link</span>
+                        <div class="loading-spinner hidden"></div>
+                    </button>
+                </form>
+                <div class="mt-6 text-center">
+                    <button onclick="toggleForm('login')" class="text-sm text-gray-600 hover:text-purple-600">
+                        Back to Sign in
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentUser = null;
+
+        // Initialize Firebase
+        async function initializeFirebase() {
+            try {
+                const response = await fetch('/api/firebase-config');
+                if (!response.ok) throw new Error('Failed to load Firebase configuration');
+                const firebaseConfig = await response.json();
+                firebase.initializeApp(firebaseConfig);
+                
+                // Check if user is already logged in
+                firebase.auth().onAuthStateChanged((user) => {
+                    if (user) {
+                        currentUser = user;
+                        window.location.href = '/dashboard';
+                    }
+                });
+            } catch (error) {
+                showError('Failed to initialize application');
+                console.error('Firebase initialization error:', error);
+            }
+        }
+
+        // Handle Login
+        async function handleLogin(event) {
+            event.preventDefault();
+            setLoading(true, 'login');
+            clearErrors();
+
+            const email = document.getElementById('loginEmail').value;
+            const password = document.getElementById('loginPassword').value;
+
+            try {
+                await firebase.auth().signInWithEmailAndPassword(email, password);
+                window.location.href = '/dashboard';
+            } catch (error) {
+                handleAuthError(error, 'login');
+            } finally {
+                setLoading(false, 'login');
+            }
+        }
+
+        // Handle Signup
+        async function handleSignup(event) {
+            event.preventDefault();
+            clearErrors();
+            
+            const email = document.getElementById('signupEmail').value;
+            const password = document.getElementById('signupPassword').value;
+            
+            setLoading(true, 'signup');
+            
+            try {
+                // Create user account
+                const userCredential = await firebase.auth().createUserWithEmailAndPassword(email, password);
+                
+                // Create user document in Firestore with initial 3 points
+                await firebase.firestore().collection('users').doc(userCredential.user.uid).set({
+                    email: email,
+                    points: 3,
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    lastLogin: firebase.firestore.FieldValue.serverTimestamp()
+                });
+
+                showSuccess('Account created successfully! You received 3 free points.');
+                
+                // Get URL parameters
+                const urlParams = new URLSearchParams(window.location.search);
+                const plan = urlParams.get('plan');
+                
+                // Redirect based on plan parameter
+                if (plan) {
+                    window.location.href = `/dashboard?plan=${plan}`;
+                } else {
+                    window.location.href = '/dashboard';
+                }
+            } catch (error) {
+                handleAuthError(error, 'signup');
+            } finally {
+                setLoading(false, 'signup');
+            }
+        }
+
+        // Handle Forgot Password
+        async function handleForgotPassword(event) {
+            event.preventDefault();
+            setLoading(true, 'reset');
+            clearErrors();
+
+            const email = document.getElementById('resetEmail').value;
+
+            try {
+                await firebase.auth().sendPasswordResetEmail(email);
+                showSuccess('Password reset email sent! Please check your inbox.');
+                toggleForm('login');
+            } catch (error) {
+                handleAuthError(error, 'reset');
+            } finally {
+                setLoading(false, 'reset');
+            }
+        }
+
+        // Toggle Forms
+        function toggleForm(formType) {
+            const forms = {
+                login: document.getElementById('loginForm'),
+                signup: document.getElementById('signupForm'),
+                forgot: document.getElementById('forgotPasswordForm')
+            };
+
+            Object.values(forms).forEach(form => form.classList.add('hidden'));
+            forms[formType].classList.remove('hidden');
+            clearErrors();
+        }
+
+        // Handle Auth Errors
+        function handleAuthError(error, formType) {
+            const errorMap = {
+                'auth/invalid-email': 'Invalid email address',
+                'auth/user-disabled': 'This account has been disabled',
+                'auth/user-not-found': 'No account found with this email',
+                'auth/wrong-password': 'Incorrect password',
+                'auth/email-already-in-use': 'Email already in use',
+                'auth/weak-password': 'Password should be at least 6 characters',
+                'auth/too-many-requests': 'Too many attempts. Please try again later'
+            };
+
+            const message = errorMap[error.code] || error.message;
+            showError(message);
+
+            if (error.code === 'auth/invalid-email') {
+                showFieldError(`${formType}Email`, 'Invalid email address');
+            }
+            if (error.code === 'auth/weak-password') {
+                showFieldError(`${formType}Password`, 'Password should be at least 6 characters');
+            }
+        }
+
+        // UI Helpers
+        function setLoading(isLoading, formType) {
+            const button = document.querySelector(`#${formType}Form button[type="submit"]`);
+            const spinner = button.querySelector('.loading-spinner');
+            const text = button.querySelector('.button-text');
+
+            button.disabled = isLoading;
+            spinner.classList.toggle('hidden', !isLoading);
+            text.classList.toggle('hidden', isLoading);
+        }
+
+        function showFieldError(fieldId, message) {
+            const errorDiv = document.getElementById(`${fieldId}Error`);
+            if (errorDiv) {
+                errorDiv.textContent = message;
+                errorDiv.classList.remove('hidden');
+            }
+        }
+
+        function clearErrors() {
+            document.querySelectorAll('[id$="Error"]').forEach(el => {
+                el.classList.add('hidden');
+                el.textContent = '';
+            });
+        }
+
+        function showNotification(message, type = 'success') {
+            const notifications = document.getElementById('notifications');
+            const notification = document.createElement('div');
+            
+            notification.className = `p-4 rounded-lg shadow-lg transform translate-y-[-100%] transition-transform duration-300 ${
+                type === 'success' ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'
+            }`;
+            
+            notification.innerHTML = `
+                <div class="flex items-center">
+                    <span class="mr-2">${type === 'success' ? '✓' : '✕'}</span>
+                    <span>${message}</span>
+                </div>
+            `;
+            
+            notifications.appendChild(notification);
+            
+            setTimeout(() => {
+                notification.style.transform = 'translateY(0)';
+            }, 100);
+            
+            setTimeout(() => {
+                notification.style.transform = 'translateY(-100%)';
+                setTimeout(() => notifications.removeChild(notification), 300);
+            }, 3000);
+        }
+
+        function showError(message) {
+            showNotification(message, 'error');
+        }
+
+        function showSuccess(message) {
+            showNotification(message, 'success');
+        }
+
+        // Initialize
+        initializeFirebase();
+
+        // Handle URL parameters
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.get('signup') === 'true') {
+            toggleForm('signup');
+        }
+    </script>
+</body>
+</html> 
