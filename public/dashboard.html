@@ -128,7 +128,7 @@
     <script>
         document.addEventListener('DOMContentLoaded', async () => {
             try {
-                // Initialize Firebase
+                // Initialize Firebase first
                 firebase.initializeApp({
                     apiKey: "AIzaSyCmToewamZs5HVBMpWWnAnlafjolZdWJK8",
                     authDomain: "test-d4c13.firebaseapp.com",
@@ -139,21 +139,32 @@
                     measurementId: "G-ZQ2TB34NT9"
                 });
 
+                // Initialize Firestore persistence
+                firebase.firestore().enablePersistence()
+                    .catch(err => {
+                        if (err.code === 'failed-precondition') {
+                            console.warn('Multiple tabs open. Persistence can only be enabled in one tab.');
+                        } else if (err.code === 'unimplemented') {
+                            console.warn('Persistence is not available in this browser.');
+                        }
+                    });
+
                 // Initialize Stripe
                 await initializeStripe();
+
+                // Setup event listeners
+                setupEventListeners();
 
                 // Auth state observer
                 firebase.auth().onAuthStateChanged(async (user) => {
                     if (user) {
+                        currentUser = user;
                         await loadUserData();
                         await loadPurchaseHistory();
                     } else {
                         window.location.href = '/auth';
                     }
                 });
-
-                // Setup event listeners
-                setupEventListeners();
             } catch (error) {
                 console.error('Initialization error:', error);
                 showError('Failed to initialize application');
@@ -168,18 +179,12 @@
         async function initializeStripe() {
             try {
                 console.log('Initializing Stripe...');
-                const response = await fetch('https://testi-gilt.vercel.app/api/config', {
-                    method: 'GET',
-                    headers: {
-                        'Accept': 'application/json',
-                        'Content-Type': 'application/json'
-                    }
-                });
+                const response = await fetch('/api/config');
                 
                 if (!response.ok) {
-                    const errorText = await response.text();
-                    console.error('Config response:', errorText);
-                    throw new Error(`HTTP error! status: ${response.status}`);
+                    const errorData = await response.json();
+                    console.error('Config response:', errorData);
+                    throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
                 }
                 
                 const { publishableKey } = await response.json();
@@ -190,13 +195,6 @@
                 
                 stripe = Stripe(publishableKey);
                 console.log('Stripe initialized successfully');
-                
-                // Check URL parameters
-                const urlParams = new URLSearchParams(window.location.search);
-                if (urlParams.get('success') === 'true') {
-                    showSuccess('Payment successful! Your points will be added shortly.');
-                    await checkPaymentStatus();
-                }
             } catch (error) {
                 console.error('Stripe initialization error:', error);
                 showError(`Payment system initialization failed: ${error.message}`);

@@ -1,21 +1,66 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const path = require('path');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const admin = require('firebase-admin');
 
+// Initialize Firebase Admin first
+let adminInitialized = false;
+try {
+    if (!adminInitialized) {
+        admin.initializeApp({
+            credential: admin.credential.cert({
+                projectId: process.env.FIREBASE_PROJECT_ID,
+                clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+                privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n')
+            })
+        });
+        adminInitialized = true;
+    }
+} catch (error) {
+    console.error('Firebase Admin initialization error:', error);
+}
+
 const app = express();
 
-// Add this at the top of server.js
-console.log('Environment check:', {
-    hasStripePublishableKey: !!process.env.STRIPE_PUBLISHABLE_KEY,
-    hasStripeSecretKey: !!process.env.STRIPE_SECRET_KEY,
-    hasWebhookSecret: !!process.env.STRIPE_WEBHOOK_SECRET,
-    nodeEnv: process.env.NODE_ENV
+// CORS configuration
+app.use(cors({
+    origin: ['https://testi-gilt.vercel.app', 'http://localhost:3000'],
+    methods: ['GET', 'POST'],
+    credentials: true
+}));
+
+// Config endpoint (BEFORE other routes)
+app.get('/api/config', async (req, res) => {
+    try {
+        // Verify environment variables
+        if (!process.env.STRIPE_PUBLISHABLE_KEY) {
+            throw new Error('Stripe publishable key is not configured');
+        }
+
+        // Log the request
+        console.log('Config endpoint called:', {
+            origin: req.headers.origin,
+            referer: req.headers.referer
+        });
+
+        // Send response
+        return res.status(200).json({
+            publishableKey: process.env.STRIPE_PUBLISHABLE_KEY,
+            environment: process.env.NODE_ENV
+        });
+    } catch (error) {
+        console.error('Config endpoint error:', error);
+        return res.status(500).json({
+            error: {
+                message: error.message || 'Internal server error',
+                code: 'CONFIG_ERROR'
+            }
+        });
+    }
 });
 
-// Move webhook route BEFORE other middleware
+// Webhook endpoint (raw body parsing)
 app.post('/webhook', express.raw({type: 'application/json'}), async (req, res) => {
     const sig = req.headers['stripe-signature'];
     let event;
@@ -54,161 +99,23 @@ app.post('/webhook', express.raw({type: 'application/json'}), async (req, res) =
     res.json({received: true});
 });
 
-// Other middleware below
-app.use(cors());
-app.use(express.json());
-app.use(express.static('public'));
-
-// Initialize Firebase Admin
-try {
-    admin.initializeApp({
-        credential: admin.credential.cert({
-            projectId: process.env.FIREBASE_PROJECT_ID,
-            clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-            privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n')
-        })
-    });
-} catch (error) {
-    console.error('Firebase initialization error:', error);
-}
-
-// Debug middleware
-app.use((req, res, next) => {
-    console.log(`${req.method} ${req.path}`, {
-        headers: req.headers,
-        query: req.query
-    });
-    next();
-});
-
-// Config endpoint with better error handling
-app.get('/api/config', async (req, res) => {
-    res.setHeader('Access-Control-Allow-Origin', 'https://testi-gilt.vercel.app');
-    res.setHeader('Access-Control-Allow-Methods', 'GET');
-    res.setHeader('Content-Type', 'application/json');
-
-    try {
-        if (!process.env.STRIPE_PUBLISHABLE_KEY) {
-            console.error('Stripe publishable key missing');
-            return res.status(500).json({
-                error: 'Stripe configuration missing'
-            });
-        }
-
-        return res.status(200).json({
-            publishableKey: process.env.STRIPE_PUBLISHABLE_KEY
-        });
-    } catch (error) {
-        console.error('Config endpoint error:', error);
-        return res.status(500).json({
-            error: 'Internal server error'
-        });
-    }
-});
-
-// Serve static files
-app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
-app.get('/dashboard', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'dashboard.html'));
-});
-
-app.get('/auth', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'auth.html'));
-});
-
-// Add this before your routes
-app.use((req, res, next) => {
-    console.log(`${req.method} ${req.path}`, {
-        body: req.body,
-        query: req.query
-    });
-    next();
-});
-
-// Create points checkout session
-app.post('/api/create-points-checkout', async (req, res) => {
-    try {
-        const { points, userId, email } = req.body;
-        
-        if (!points || !userId || points < 10 || points > 5000) {
-            return res.status(400).json({ error: 'Invalid points amount or missing user ID' });
-        }
-
-        const session = await stripe.checkout.sessions.create({
-            payment_method_types: ['card'],
-            line_items: [{
-                price_data: {
-                    currency: 'usd',
-                    product_data: {
-                        name: `${points} Points`,
-                        description: `Purchase ${points} points for your account`
-                    },
-                    unit_amount: points * 10 // $0.10 per point
-                },
-                quantity: 1
-            }],
-            mode: 'payment',
-            success_url: `${process.env.BASE_URL}/dashboard?success=true&session_id={CHECKOUT_SESSION_ID}`,
-            cancel_url: `${process.env.BASE_URL}/dashboard?canceled=true`,
-            customer_email: email,
-            metadata: {
-                userId,
-                points: points.toString()
-            },
-            payment_intent_data: {
-                metadata: {
-                    userId,
-                    points: points.toString()
-                }
-            }
-        });
-
-        res.json({ url: session.url });
-    } catch (error) {
-        console.error('Checkout error:', error);
-        res.status(500).json({ error: error.message });
-    }
-});
-
-// Add success endpoint to verify payment
-app.get('/api/checkout-session/:sessionId', async (req, res) => {
-    try {
-        const session = await stripe.checkout.sessions.retrieve(req.params.sessionId);
-        res.json(session);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-// Catch-all route for static files
-app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', req.path));
-});
-
 // Error handling middleware
 app.use((err, req, res, next) => {
-    console.error('Server error:', err);
+    console.error('Server error:', {
+        message: err.message,
+        stack: err.stack,
+        path: req.path
+    });
+    
     res.status(500).json({
-        success: false,
-        error: 'Internal server error',
-        message: err.message
+        error: {
+            message: 'An internal server error occurred',
+            code: 'SERVER_ERROR'
+        }
     });
 });
 
-// Debug endpoint (remove in production)
-app.get('/api/debug-config', (req, res) => {
-    res.json({
-        hasStripePublishableKey: !!process.env.STRIPE_PUBLISHABLE_KEY,
-        hasStripeSecretKey: !!process.env.STRIPE_SECRET_KEY,
-        hasWebhookSecret: !!process.env.STRIPE_WEBHOOK_SECRET,
-        nodeEnv: process.env.NODE_ENV
-    });
-});
-
-// Export for Vercel
+// Export the Express API
 module.exports = app;
 
 async function handleSuccessfulPayment(session) {
@@ -257,29 +164,3 @@ async function handleSuccessfulPayment(session) {
         throw error;
     }
 }
-
-// Add at the top after imports
-const app = express();
-
-// Error logging middleware
-app.use((err, req, res, next) => {
-    console.error('Error:', {
-        message: err.message,
-        stack: err.stack,
-        path: req.path,
-        method: req.method
-    });
-    next(err);
-});
-
-// Add before routes
-app.use((req, res, next) => {
-    console.log('Request:', {
-        path: req.path,
-        method: req.method,
-        headers: req.headers,
-        query: req.query,
-        body: req.body
-    });
-    next();
-});
