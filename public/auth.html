@@ -164,6 +164,8 @@
 
         // Initialize Firebase
         firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+        const db = firebase.firestore();
 
         // Check if user is already logged in
         firebase.auth().onAuthStateChanged((user) => {
@@ -204,28 +206,23 @@
             
             try {
                 // Create user account
-                const userCredential = await firebase.auth().createUserWithEmailAndPassword(email, password);
+                const userCredential = await auth.createUserWithEmailAndPassword(email, password);
                 
-                // Create user document in Firestore with initial 3 points
-                await firebase.firestore().collection('users').doc(userCredential.user.uid).set({
+                // Get URL parameters for plan selection
+                const urlParams = new URLSearchParams(window.location.search);
+                const selectedPlan = urlParams.get('plan');
+                
+                // Create user document in Firestore
+                await db.collection('users').doc(userCredential.user.uid).set({
                     email: email,
-                    points: 3,
+                    points: 3, // Starting points
+                    plan: selectedPlan || 'free',
                     createdAt: firebase.firestore.FieldValue.serverTimestamp(),
                     lastLogin: firebase.firestore.FieldValue.serverTimestamp()
                 });
 
                 showSuccess('Account created successfully! You received 3 free points.');
-                
-                // Get URL parameters
-                const urlParams = new URLSearchParams(window.location.search);
-                const plan = urlParams.get('plan');
-                
-                // Redirect based on plan parameter
-                if (plan) {
-                    window.location.href = `/dashboard?plan=${plan}`;
-                } else {
-                    window.location.href = '/dashboard';
-                }
+                window.location.href = '/dashboard';
             } catch (error) {
                 handleAuthError(error, 'signup');
             } finally {
