@@ -13,7 +13,11 @@
     "routes": [
         {
             "src": "/api/(.*)",
-            "dest": "server.js"
+            "dest": "/server.js"
+        },
+        {
+            "src": "/webhook",
+            "dest": "/server.js"
         },
         {
             "src": "/dashboard",
@@ -28,11 +32,7 @@
             "dest": "/public/index.html"
         },
         {
-            "src": "/(.+\\.(?:css|js|jpg|png|gif|ico|json|svg))",
-            "dest": "/public/$1"
-        },
-        {
-            "src": "/(.*)",
+            "src": "/(.+\\.(js|css|png|jpg|gif|svg|ico)$)",
             "dest": "/public/$1"
         }
     ]

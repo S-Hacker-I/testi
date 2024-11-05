@@ -82,21 +82,26 @@ app.use((req, res, next) => {
 });
 
 // Config endpoint with better error handling
-app.get('/api/config', (req, res) => {
-    console.log('Config endpoint called');
-    
+app.get('/api/config', async (req, res) => {
+    res.setHeader('Access-Control-Allow-Origin', 'https://testi-gilt.vercel.app');
+    res.setHeader('Access-Control-Allow-Methods', 'GET');
+    res.setHeader('Content-Type', 'application/json');
+
     try {
         if (!process.env.STRIPE_PUBLISHABLE_KEY) {
-            throw new Error('Stripe publishable key is missing');
+            console.error('Stripe publishable key missing');
+            return res.status(500).json({
+                error: 'Stripe configuration missing'
+            });
         }
-        
-        res.status(200).json({
+
+        return res.status(200).json({
             publishableKey: process.env.STRIPE_PUBLISHABLE_KEY
         });
     } catch (error) {
         console.error('Config endpoint error:', error);
-        res.status(500).json({
-            error: error.message || 'Internal server error'
+        return res.status(500).json({
+            error: 'Internal server error'
         });
     }
 });
@@ -252,3 +257,29 @@ async function handleSuccessfulPayment(session) {
         throw error;
     }
 }
+
+// Add at the top after imports
+const app = express();
+
+// Error logging middleware
+app.use((err, req, res, next) => {
+    console.error('Error:', {
+        message: err.message,
+        stack: err.stack,
+        path: req.path,
+        method: req.method
+    });
+    next(err);
+});
+
+// Add before routes
+app.use((req, res, next) => {
+    console.log('Request:', {
+        path: req.path,
+        method: req.method,
+        headers: req.headers,
+        query: req.query,
+        body: req.body
+    });
+    next();
+});
