@@ -7,6 +7,14 @@ const admin = require('firebase-admin');
 
 const app = express();
 
+// Add this at the top of server.js
+console.log('Environment check:', {
+    hasStripePublishableKey: !!process.env.STRIPE_PUBLISHABLE_KEY,
+    hasStripeSecretKey: !!process.env.STRIPE_SECRET_KEY,
+    hasWebhookSecret: !!process.env.STRIPE_WEBHOOK_SECRET,
+    nodeEnv: process.env.NODE_ENV
+});
+
 // Basic middleware
 app.use(cors());
 app.use(express.json());
@@ -42,6 +50,7 @@ app.get('/api/config', async (req, res) => {
     // Set proper headers
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Cache-Control', 'no-store');
+    
     
     try {
         // Check for required environment variables
