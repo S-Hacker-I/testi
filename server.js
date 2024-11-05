@@ -54,7 +54,7 @@ app.get('/api/config', (req, res) => {
         console.error('Config endpoint error:', error);
         res.status(500).json({
             error: 'Internal server error',
-            message: error.message
+            details: error.message
         });
     }
 });

@@ -148,7 +148,7 @@
                 
                 if (!response.ok) {
                     const errorData = await response.json();
-                    throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
+                    throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
                 }
                 
                 const config = await response.json();
@@ -162,7 +162,8 @@
                 console.log('Stripe initialized successfully');
             } catch (error) {
                 console.error('Stripe initialization error:', error);
-                showError(`Payment system initialization failed: ${error.message}`);
+                showError('Payment system initialization failed. Please try again later.');
+                throw error;
             }
         }
 
@@ -304,6 +305,9 @@
                     .orderBy('timestamp', 'desc')
                     .limit(5);
 
+                // Wait for the index to be ready
+                await purchasesRef.get();
+
                 const unsubscribe = purchasesRef.onSnapshot((snapshot) => {
                     if (snapshot.empty) {
                         purchaseHistory.innerHTML = '<div class="text-gray-500">No purchase history available</div>';
@@ -334,7 +338,6 @@
                     purchaseHistory.innerHTML = '<div class="text-red-500">Failed to load purchase history</div>';
                 });
 
-                // Clean up listener when component unmounts
                 return () => unsubscribe();
             } catch (error) {
                 console.error('Purchase history error:', error);
@@ -432,6 +435,21 @@
                     window.history.replaceState({}, document.title, '/dashboard');
                 }
             }
+        }
+
+        async function waitForIndex(query, maxAttempts = 5) {
+            for (let attempt = 0; attempt < maxAttempts; attempt++) {
+                try {
+                    await query.get();
+                    return true;
+                } catch (error) {
+                    if (!error.message.includes('requires an index')) {
+                        throw error;
+                    }
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                }
+            }
+            return false;
         }
     </script>
 </body>
