@@ -154,10 +154,10 @@ app.use((err, req, res, next) => {
     });
 });
 
-// Stripe webhook handler - Move this BEFORE the express.json() middleware
+// Move this BEFORE all other middleware
 app.post('/api/webhook', express.raw({type: 'application/json'}), async (req, res) => {
     const sig = req.headers['stripe-signature'];
-    console.log('Webhook received');
+    console.log('Webhook received', { signature: !!sig });
 
     try {
         const event = stripe.webhooks.constructEvent(
@@ -166,15 +166,21 @@ app.post('/api/webhook', express.raw({type: 'application/json'}), async (req, re
             process.env.STRIPE_WEBHOOK_SECRET
         );
 
-        console.log('Webhook event type:', event.type);
+        console.log('Webhook event:', { 
+            type: event.type,
+            id: event.id
+        });
 
         if (event.type === 'checkout.session.completed') {
             const session = event.data.object;
-            console.log('Processing successful payment:', session.id);
+            console.log('Processing payment:', {
+                sessionId: session.id,
+                metadata: session.metadata,
+                amount: session.amount_total
+            });
 
             // Handle the successful payment
             await handleSuccessfulPayment(session);
-            console.log('Payment processed successfully');
         }
 
         res.json({received: true});
@@ -184,32 +190,35 @@ app.post('/api/webhook', express.raw({type: 'application/json'}), async (req, re
     }
 });
 
-// Function to handle successful payments - Update with better error handling
+// Update the payment handler
 async function handleSuccessfulPayment(session) {
     const { userId, points } = session.metadata;
+    if (!userId || !points) {
+        console.error('Missing metadata:', session.metadata);
+        return;
+    }
+
     const db = admin.firestore();
-    
     console.log('Processing payment for:', { userId, points, sessionId: session.id });
 
     try {
-        // Use a transaction to ensure data consistency
         await db.runTransaction(async (transaction) => {
             const userRef = db.collection('users').doc(userId);
             const userDoc = await transaction.get(userRef);
 
+            // Calculate new points total
+            const currentPoints = userDoc.exists ? (userDoc.data().points || 0) : 0;
+            const pointsToAdd = parseInt(points);
+            const newTotal = currentPoints + pointsToAdd;
+
+            // Update or create user document
             if (!userDoc.exists) {
-                console.log('Creating new user document');
                 transaction.set(userRef, {
-                    points: parseInt(points),
+                    points: newTotal,
                     created: admin.firestore.FieldValue.serverTimestamp(),
                     lastUpdated: admin.firestore.FieldValue.serverTimestamp()
                 });
             } else {
-                console.log('Updating existing user document');
-                const currentPoints = userDoc.data().points || 0;
-                const pointsToAdd = parseInt(points);
-                const newTotal = currentPoints + pointsToAdd;
-
                 transaction.update(userRef, {
                     points: newTotal,
                     lastUpdated: admin.firestore.FieldValue.serverTimestamp()
@@ -220,7 +229,7 @@ async function handleSuccessfulPayment(session) {
             const purchaseRef = db.collection('purchases').doc();
             transaction.set(purchaseRef, {
                 userId: userId,
-                points: parseInt(points),
+                points: pointsToAdd,
                 amount: session.amount_total,
                 timestamp: admin.firestore.FieldValue.serverTimestamp(),
                 sessionId: session.id,
@@ -229,9 +238,13 @@ async function handleSuccessfulPayment(session) {
             });
         });
 
-        console.log('Transaction completed successfully');
+        console.log('Transaction completed:', {
+            userId,
+            points,
+            sessionId: session.id
+        });
     } catch (error) {
-        console.error('Error in handleSuccessfulPayment:', error);
+        console.error('Transaction failed:', error);
         throw error;
     }
 }
