@@ -126,15 +126,39 @@
     </div>
 
     <script>
-        // Firebase configuration
-        const firebaseConfig = {
-            apiKey: "AIzaSyCmToewamZs5HVBMpWWnAnlafjolZdWJK8",
-            authDomain: "test-d4c13.firebaseapp.com",
-            projectId: "test-d4c13",
-            storageBucket: "test-d4c13.appspot.com",
-            messagingSenderId: "771743673319",
-            appId: "1:771743673319:web:61e563fa2f5f98a6beeb42"
-        };
+        document.addEventListener('DOMContentLoaded', async () => {
+            try {
+                // Initialize Firebase
+                firebase.initializeApp({
+                    apiKey: "AIzaSyCmToewamZs5HVBMpWWnAnlafjolZdWJK8",
+                    authDomain: "test-d4c13.firebaseapp.com",
+                    projectId: "test-d4c13",
+                    storageBucket: "test-d4c13.appspot.com",
+                    messagingSenderId: "771743673319",
+                    appId: "1:771743673319:web:61e563fa2f5f98a6beeb42",
+                    measurementId: "G-ZQ2TB34NT9"
+                });
+
+                // Initialize Stripe
+                await initializeStripe();
+
+                // Auth state observer
+                firebase.auth().onAuthStateChanged(async (user) => {
+                    if (user) {
+                        await loadUserData();
+                        await loadPurchaseHistory();
+                    } else {
+                        window.location.href = '/auth';
+                    }
+                });
+
+                // Setup event listeners
+                setupEventListeners();
+            } catch (error) {
+                console.error('Initialization error:', error);
+                showError('Failed to initialize application');
+            }
+        });
 
         let currentUser = null;
         let userPoints = 0;
@@ -144,44 +168,40 @@
         async function initializeStripe() {
             try {
                 console.log('Initializing Stripe...');
-                const response = await fetch('/api/config', {
-                    method: 'GET',
-                    headers: {
-                        'Accept': 'application/json',
-                        'Cache-Control': 'no-cache'
-                    }
-                });
+                const response = await fetch('/api/config');
                 
                 if (!response.ok) {
-                    const text = await response.text();
-                    let error;
-                    try {
-                        const data = JSON.parse(text);
-                        error = data.error || `HTTP error! status: ${response.status}`;
-                    } catch (e) {
-                        error = `Server error: ${text}`;
-                    }
-                    throw new Error(error);
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Failed to load Stripe configuration');
                 }
                 
-                const data = await response.json();
-                console.log('Stripe config received:', { success: data.success });
+                const { publishableKey } = await response.json();
                 
-                if (!data.stripePublishableKey) {
-                    throw new Error('Stripe publishable key not found in config');
+                if (!publishableKey) {
+                    throw new Error('Stripe publishable key not found');
                 }
                 
-                stripe = Stripe(data.stripePublishableKey);
+                stripe = Stripe(publishableKey);
                 console.log('Stripe initialized successfully');
+                
+                // Initialize checkout
+                const urlParams = new URLSearchParams(window.location.search);
+                if (urlParams.get('success') === 'true') {
+                    showSuccess('Payment successful! Your points will be added shortly.');
+                    await checkPaymentStatus();
+                }
+                
+                if (urlParams.get('canceled') === 'true') {
+                    showError('Payment canceled.');
+                }
             } catch (error) {
                 console.error('Stripe initialization error:', error);
-                showError(`Payment system initialization failed: ${error.message}`);
+                showError(`Failed to initialize payment system: ${error.message}`);
                 throw error;
             }
         }
 
         // Initialize Firebase
-        firebase.initializeApp(firebaseConfig);
         firebase.firestore().enablePersistence()
             .catch(err => {
                 if (err.code === 'failed-precondition') {
@@ -463,6 +483,92 @@
                 }
             }
             return false;
+        }
+
+        async function purchasePoints() {
+            if (!stripe) {
+                showError('Payment system not initialized');
+                return;
+            }
+
+            const pointsInput = document.getElementById('pointsInput');
+            const points = parseInt(pointsInput.value);
+            const buyButton = document.querySelector('#upgradeModal button[type="submit"]');
+            
+            if (!points || points < 10 || points > 5000) {
+                showError('Please enter a valid points amount (10-5000)');
+                return;
+            }
+
+            try {
+                buyButton.disabled = true;
+                buyButton.innerHTML = '<div class="loading-spinner"></div>';
+
+                const response = await fetch('/api/create-points-checkout', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        points,
+                        userId: firebase.auth().currentUser.uid,
+                        email: firebase.auth().currentUser.email
+                    })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || 'Failed to create checkout session');
+                }
+
+                if (!data.url) {
+                    throw new Error('No checkout URL received');
+                }
+
+                window.location.href = data.url;
+            } catch (error) {
+                console.error('Purchase error:', error);
+                showError(error.message);
+            } finally {
+                buyButton.disabled = false;
+                buyButton.innerHTML = 'Purchase Points';
+            }
+        }
+
+        function showNotification(message, type = 'success') {
+            const notifications = document.getElementById('notifications');
+            const notification = document.createElement('div');
+            
+            notification.className = `p-4 rounded-lg shadow-lg transform translate-y-[-100%] transition-transform duration-300 ${
+                type === 'success' ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'
+            }`;
+            
+            notification.innerHTML = `
+                <div class="flex items-center">
+                    <span class="mr-2">${type === 'success' ? '✓' : '✕'}</span>
+                    <span>${message}</span>
+                </div>
+            `;
+            
+            notifications.appendChild(notification);
+            
+            setTimeout(() => {
+                notification.style.transform = 'translateY(0)';
+            }, 100);
+            
+            setTimeout(() => {
+                notification.style.transform = 'translateY(-100%)';
+                setTimeout(() => notifications.removeChild(notification), 300);
+            }, 3000);
+        }
+
+        function showError(message) {
+            showNotification(message, 'error');
+        }
+
+        function showSuccess(message) {
+            showNotification(message, 'success');
         }
     </script>
 </body>

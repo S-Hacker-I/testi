@@ -82,35 +82,21 @@ app.use((req, res, next) => {
 });
 
 // Config endpoint with better error handling
-app.get('/api/config', async (req, res) => {
+app.get('/api/config', (req, res) => {
     console.log('Config endpoint called');
     
-    // Set proper headers
-    res.setHeader('Content-Type', 'application/json');
-    res.setHeader('Cache-Control', 'no-store');
-    
-    
     try {
-        // Check for required environment variables
         if (!process.env.STRIPE_PUBLISHABLE_KEY) {
-            console.error('Stripe publishable key missing');
-            return res.status(500).json({
-                success: false,
-                error: 'Stripe configuration missing'
-            });
+            throw new Error('Stripe publishable key is missing');
         }
-
-        // Return the configuration
-        return res.status(200).json({
-            success: true,
-            stripePublishableKey: process.env.STRIPE_PUBLISHABLE_KEY
+        
+        res.status(200).json({
+            publishableKey: process.env.STRIPE_PUBLISHABLE_KEY
         });
     } catch (error) {
         console.error('Config endpoint error:', error);
-        return res.status(500).json({
-            success: false,
-            error: 'Internal server error',
-            message: error.message
+        res.status(500).json({
+            error: error.message || 'Internal server error'
         });
     }
 });
