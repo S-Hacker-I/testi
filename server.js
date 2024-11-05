@@ -26,35 +26,44 @@ try {
     console.error('Firebase initialization error:', error);
 }
 
-// Debug endpoint to check environment variables
-app.get('/api/debug', (req, res) => {
-    res.json({
-        hasStripeKey: !!process.env.STRIPE_PUBLISHABLE_KEY,
-        hasSecretKey: !!process.env.STRIPE_SECRET_KEY,
-        hasFirebaseProjectId: !!process.env.FIREBASE_PROJECT_ID,
-        environment: process.env.NODE_ENV
+// Debug middleware
+app.use((req, res, next) => {
+    console.log(`${req.method} ${req.path}`, {
+        headers: req.headers,
+        query: req.query
     });
+    next();
 });
 
 // Config endpoint with better error handling
-app.get('/api/config', (req, res) => {
+app.get('/api/config', async (req, res) => {
     console.log('Config endpoint called');
+    
+    // Set proper headers
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Cache-Control', 'no-store');
+    
     try {
+        // Check for required environment variables
         if (!process.env.STRIPE_PUBLISHABLE_KEY) {
             console.error('Stripe publishable key missing');
             return res.status(500).json({
+                success: false,
                 error: 'Stripe configuration missing'
             });
         }
 
-        res.json({
+        // Return the configuration
+        return res.status(200).json({
+            success: true,
             stripePublishableKey: process.env.STRIPE_PUBLISHABLE_KEY
         });
     } catch (error) {
         console.error('Config endpoint error:', error);
-        res.status(500).json({
+        return res.status(500).json({
+            success: false,
             error: 'Internal server error',
-            details: error.message
+            message: error.message
         });
     }
 });
@@ -145,10 +154,11 @@ app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', req.path));
 });
 
-// Add this after your routes
+// Error handling middleware
 app.use((err, req, res, next) => {
     console.error('Server error:', err);
     res.status(500).json({
+        success: false,
         error: 'Internal server error',
         message: err.message
     });
@@ -248,6 +258,16 @@ async function handleSuccessfulPayment(session) {
         throw error;
     }
 }
+
+// Debug endpoint (remove in production)
+app.get('/api/debug-config', (req, res) => {
+    res.json({
+        hasStripePublishableKey: !!process.env.STRIPE_PUBLISHABLE_KEY,
+        hasStripeSecretKey: !!process.env.STRIPE_SECRET_KEY,
+        hasWebhookSecret: !!process.env.STRIPE_WEBHOOK_SECRET,
+        nodeEnv: process.env.NODE_ENV
+    });
+});
 
 // Export for Vercel
 module.exports = app;

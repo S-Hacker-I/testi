@@ -144,25 +144,38 @@
         async function initializeStripe() {
             try {
                 console.log('Initializing Stripe...');
-                const response = await fetch('/api/config');
+                const response = await fetch('/api/config', {
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'application/json',
+                        'Cache-Control': 'no-cache'
+                    }
+                });
                 
                 if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+                    const text = await response.text();
+                    let error;
+                    try {
+                        const data = JSON.parse(text);
+                        error = data.error || `HTTP error! status: ${response.status}`;
+                    } catch (e) {
+                        error = `Server error: ${text}`;
+                    }
+                    throw new Error(error);
                 }
                 
-                const config = await response.json();
-                console.log('Stripe config received');
+                const data = await response.json();
+                console.log('Stripe config received:', { success: data.success });
                 
-                if (!config.stripePublishableKey) {
+                if (!data.stripePublishableKey) {
                     throw new Error('Stripe publishable key not found in config');
                 }
                 
-                stripe = Stripe(config.stripePublishableKey);
+                stripe = Stripe(data.stripePublishableKey);
                 console.log('Stripe initialized successfully');
             } catch (error) {
                 console.error('Stripe initialization error:', error);
-                showError('Payment system initialization failed. Please try again later.');
+                showError(`Payment system initialization failed: ${error.message}`);
                 throw error;
             }
         }
